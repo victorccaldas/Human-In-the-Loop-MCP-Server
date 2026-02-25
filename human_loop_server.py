@@ -32,6 +32,31 @@ IS_LINUX = CURRENT_PLATFORM == 'linux'
 # Initialize the MCP server
 mcp = FastMCP("Human-in-the-Loop Server")
 
+# Keys for environment-based injection support. Supports uppercase or lowercase name.
+INJECTION_ENV_KEYS = ("POST_MULTILINE_INPUT_INJECTION", "post_multiline_input_injection")
+
+def _get_multiline_input_injection() -> str:
+    """Return the configured injection sentence read only from CLI args.
+
+    Expected CLI forms:
+      --post_multiline_input_injection=...
+      --post-multiline-input-injection=...
+      post_multiline_input_injection=...
+    If not present, returns empty string.
+    """
+    try:
+        argv = sys.argv[1:]
+        for i, a in enumerate(argv):
+            if a.startswith("--post_multiline_input_injection=") or a.startswith("post_multiline_input_injection=") or a.startswith("--post-multiline-input-injection=") or a.startswith("post-multiline-input-injection="):
+                return a.split("=", 1)[1]
+            if a in ("--post_multiline_input_injection", "--post-multiline-input-injection", "post_multiline_input_injection", "post-multiline-input-injection"):
+                if i + 1 < len(argv):
+                    return argv[i + 1]
+    except Exception:
+        pass
+
+    return ""
+
 # Global variable to ensure GUI is initialized properly
 _gui_initialized = False
 _gui_lock = threading.Lock()
@@ -352,11 +377,11 @@ class ModernInputDialog:
         # Apply modern window styling
         configure_modern_window(self.dialog)
         
-        # Set size based on platform
+        # Set size based on platform (increased height by 40px)
         if IS_WINDOWS:
-            self.dialog.geometry("420x280")
+            self.dialog.geometry("420x320")
         else:
-            self.dialog.geometry("400x260")
+            self.dialog.geometry("400x300")
         
         self.center_window()
         
@@ -375,19 +400,58 @@ class ModernInputDialog:
         )
         title_label.pack(fill="x", pady=(0, 8))
         
-        # Prompt label
-        prompt_label = tk.Label(
-            main_frame,
-            text=prompt,
+        # Prompt area (fixed height + scrollable for long prompts) with visible scrollbar and border
+        prompt_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"],
+                                    highlightbackground=self.theme_colors["border_color"],
+                                    highlightthickness=1, bd=0)
+        prompt_container.pack(fill="x", pady=(0, 20))
+
+        # Inner frame using grid so text and scrollbar align exactly and scrollbar is always visible
+        prompt_inner = tk.Frame(prompt_container, bg=self.theme_colors["bg_primary"])
+        prompt_inner.pack(fill="both", expand=True)
+        prompt_inner.columnconfigure(0, weight=1)
+        prompt_inner.rowconfigure(0, weight=1)
+
+        # Text widget for prompt (disabled so user can't edit)
+        prompt_text = tk.Text(
+            prompt_inner,
+            height=6,  # reserve vertical space so input stays visible
+            wrap="word",
             bg=self.theme_colors["bg_primary"],
             fg=self.theme_colors["fg_secondary"],
             font=get_system_font(),
-            wraplength=350,
-            justify="left",
-            anchor="w"
+            relief="flat",
+            borderwidth=0,
+            padx=8,
+            pady=6,
+            highlightthickness=0
         )
-        prompt_label.pack(fill="x", pady=(0, 20))
-        
+        prompt_text.insert("1.0", prompt)
+        prompt_text.configure(state="disabled")
+        prompt_text.grid(row=0, column=0, sticky="nsew")
+
+        # Vertical scrollbar (styled and visible to indicate scrollability)
+        prompt_scroll = tk.Scrollbar(prompt_inner, orient="vertical", command=prompt_text.yview, width=14)
+        # Make scrollbar more visible with accent colors and thicker track
+        prompt_scroll.configure(
+            troughcolor=self.theme_colors["bg_accent"],
+            bg=self.theme_colors["accent_color"],
+            activebackground=self.theme_colors["accent_hover"],
+            relief="flat",
+            bd=0,
+            highlightthickness=0
+        )
+        prompt_scroll.grid(row=0, column=1, sticky="ns", padx=(6, 0))
+        prompt_text.configure(yscrollcommand=prompt_scroll.set)
+
+        # Small arrow indicator to the right of the scrollbar so users notice it
+        arrow_label = tk.Label(prompt_inner,
+                               text="▼",
+                               bg=self.theme_colors["bg_primary"],
+                               fg=self.theme_colors["fg_secondary"],
+                               font=(get_system_font()[0], max(get_system_font()[1]-1, 9), "bold"))
+        arrow_label.grid(row=0, column=2, sticky="n", padx=(6,4), pady=(2,0))
+
         # Input field
         input_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
         input_frame.pack(fill="x", pady=(0, 24))
@@ -767,19 +831,46 @@ class ChoiceDialog:
         )
         title_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         
-        # Add prompt label with modern styling
-        prompt_label = tk.Label(
-            main_frame,
-            text=prompt,
+        # Prompt area (fixed height + scrollable) so long prompts don't push content away
+        prompt_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
+        prompt_container.grid(row=1, column=0, sticky="ew", pady=(0,20))
+        prompt_container.columnconfigure(0, weight=1)
+
+        # Inner frame for alignment
+        prompt_inner = tk.Frame(prompt_container, bg=self.theme_colors["bg_primary"])
+        prompt_inner.pack(fill="both", expand=True)
+        prompt_inner.columnconfigure(0, weight=1)
+
+        prompt_text = tk.Text(
+            prompt_inner,
+            height=4,
+            wrap="word",
             bg=self.theme_colors["bg_primary"],
             fg=self.theme_colors["fg_secondary"],
             font=get_system_font(),
-            wraplength=450,
-            justify="left",
-            anchor="w"
+            relief="flat",
+            borderwidth=0,
+            padx=6,
+            pady=4,
+            highlightthickness=0
         )
-        prompt_label.grid(row=1, column=0, sticky="ew", pady=(0, 20))
-        
+        prompt_text.insert("1.0", prompt)
+        prompt_text.configure(state="disabled")
+        prompt_text.grid(row=0, column=0, sticky="nsew")
+
+        prompt_scroll = tk.Scrollbar(prompt_inner, orient="vertical", command=prompt_text.yview, width=12)
+        apply_modern_style(prompt_scroll, "scrollbar", self.theme_colors)
+        prompt_scroll.grid(row=0, column=1, sticky="ns", padx=(6,0))
+        prompt_text.configure(yscrollcommand=prompt_scroll.set)
+
+        # Small arrow indicator to draw attention to scrollbar
+        arrow_label = tk.Label(prompt_inner,
+                               text="▼",
+                               bg=self.theme_colors["bg_primary"],
+                               fg=self.theme_colors["fg_secondary"],
+                               font=(get_system_font()[0], max(get_system_font()[1]-1, 9), "bold"))
+        arrow_label.grid(row=0, column=2, sticky="n", padx=(6,4), pady=(2,0))
+
         # Create choice selection widget with modern container
         list_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
         list_container.grid(row=2, column=0, sticky="nsew", pady=(0, 24))
@@ -916,19 +1007,44 @@ class MultilineInputDialog:
         )
         title_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         
-        # Add prompt label with modern styling
-        prompt_label = tk.Label(
-            main_frame,
-            text=prompt,
+        # Prompt area (fixed height + scrollable) so very long prompts remain readable
+        prompt_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
+        prompt_container.grid(row=1, column=0, sticky="ew", pady=(0,20))
+        prompt_container.columnconfigure(0, weight=1)
+
+        prompt_inner = tk.Frame(prompt_container, bg=self.theme_colors["bg_primary"])
+        prompt_inner.pack(fill="both", expand=True)
+        prompt_inner.columnconfigure(0, weight=1)
+
+        prompt_text = tk.Text(
+            prompt_inner,
+            height=5,
+            wrap="word",
             bg=self.theme_colors["bg_primary"],
             fg=self.theme_colors["fg_secondary"],
             font=get_system_font(),
-            wraplength=520,
-            justify="left",
-            anchor="w"
+            relief="flat",
+            borderwidth=0,
+            padx=8,
+            pady=6,
+            highlightthickness=0
         )
-        prompt_label.grid(row=1, column=0, sticky="ew", pady=(0, 20))
-        
+        prompt_text.insert("1.0", prompt)
+        prompt_text.configure(state="disabled")
+        prompt_text.grid(row=0, column=0, sticky="nsew")
+
+        prompt_scroll = tk.Scrollbar(prompt_inner, orient="vertical", command=prompt_text.yview, width=14)
+        apply_modern_style(prompt_scroll, "scrollbar", self.theme_colors)
+        prompt_scroll.grid(row=0, column=1, sticky="ns", padx=(6,0))
+        prompt_text.configure(yscrollcommand=prompt_scroll.set)
+
+        arrow_label = tk.Label(prompt_inner,
+                               text="▼",
+                               bg=self.theme_colors["bg_primary"],
+                               fg=self.theme_colors["fg_secondary"],
+                               font=(get_system_font()[0], max(get_system_font()[1]-1, 9), "bold"))
+        arrow_label.grid(row=0, column=2, sticky="n", padx=(6,4), pady=(2,0))
+
         # Create text widget container with modern styling
         text_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
         text_container.grid(row=2, column=0, sticky="nsew", pady=(0, 24))
@@ -1178,13 +1294,22 @@ async def get_multiline_input(
             result = future.result(timeout=300)  # 5 minute timeout
         
         if result is not None:
+            # Append configured injection sentence to the user's submitted answer (if any).
+            injection = _get_multiline_input_injection()
+            final_value = result
+            if injection:
+                if final_value:
+                    final_value = final_value + "\n\n" + injection
+                else:
+                    final_value = injection
+
             if ctx:
-                await ctx.info(f"User provided multiline input ({len(result)} characters)")
+                await ctx.info(f"User provided multiline input ({len(final_value)} characters)")
             return {
                 "success": True,
-                "user_input": result,
-                "character_count": len(result),
-                "line_count": len(result.split('\n')),
+                "user_input": final_value,
+                "character_count": len(final_value),
+                "line_count": len(final_value.split('\n')),
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
