@@ -102,6 +102,36 @@ _persistent_root = None
 _persistent_gui_thread = None
 _dialog_request_queue = None  # thread-safe queue; worker threads post callables here
 
+# Persistent config file (same directory as this script)
+_CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dialog_config.json")
+
+def _get_persisted_dialog_height() -> int:
+    """Return the saved dialog height, or the platform default (first run)."""
+    default = 530 if IS_WINDOWS else (510 if IS_MACOS else 480)
+    try:
+        if os.path.isfile(_CONFIG_FILE):
+            data = json.loads(open(_CONFIG_FILE, encoding="utf-8").read())
+            return int(data.get("dialog_height", default))
+    except Exception:
+        pass
+    return default
+
+def _save_persisted_dialog_height(height: int):
+    """Persist the dialog height to dialog_config.json."""
+    try:
+        data = {}
+        if os.path.isfile(_CONFIG_FILE):
+            try:
+                data = json.loads(open(_CONFIG_FILE, encoding="utf-8").read())
+            except Exception:
+                pass
+        data["dialog_height"] = height
+        with open(_CONFIG_FILE, "w", encoding="utf-8") as _f:
+            json.dump(data, _f, indent=2)
+    except Exception:
+        pass
+
+
 def get_system_font():
     """Get appropriate system font for the current platform"""
     if IS_MACOS:
@@ -1091,14 +1121,10 @@ class MultilineInputDialog:
         # Apply modern window styling
         configure_modern_window(self.dialog)
 
-        # Set size based on platform
-        if IS_MACOS:
-            self.dialog.geometry("580x510")
-        elif IS_WINDOWS:
-            self.dialog.geometry("600x530")
-        else:
-            self.dialog.geometry("550x480")
-        
+        # Width is platform-specific; height uses the persisted value
+        _dlg_width = 580 if IS_MACOS else (600 if IS_WINDOWS else 550)
+        _dlg_height = _get_persisted_dialog_height()
+        self.dialog.geometry(f"{_dlg_width}x{_dlg_height}")
         self.center_window()
         
         # Create the main frame with modern styling
@@ -1207,7 +1233,32 @@ class MultilineInputDialog:
         button_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
         button_frame.grid(row=4, column=0, sticky="ew")
         
-        # Create modern buttons
+                # Height configurator (left side of button row)
+        height_ctrl_frame = tk.Frame(button_frame, bg=self.theme_colors["bg_primary"])
+        height_ctrl_frame.pack(side=tk.LEFT, padx=(0, 0))
+        tk.Label(
+            height_ctrl_frame,
+            text="Window height:",
+            bg=self.theme_colors["bg_primary"],
+            fg=self.theme_colors["fg_secondary"],
+            font=get_system_font(),
+        ).pack(side=tk.LEFT)
+        self._height_var = tk.StringVar(value=str(_dlg_height))
+        height_spin = tk.Spinbox(
+            height_ctrl_frame,
+            from_=300, to=1500, increment=10,
+            textvariable=self._height_var,
+            width=6,
+            bg=self.theme_colors["bg_secondary"],
+            fg=self.theme_colors["fg_primary"],
+            font=get_system_font(),
+            relief="flat",
+            buttonbackground=self.theme_colors["bg_secondary"],
+        )
+        height_spin.pack(side=tk.LEFT, padx=(6, 0))
+        height_spin.bind("<Return>", self._on_height_change)
+        height_spin.bind("<FocusOut>", self._on_height_change)
+# Create modern buttons
         self.ok_button = create_modern_button(
             button_frame, "OK", self.ok_clicked, "primary", self.theme_colors
         )
@@ -1302,6 +1353,20 @@ class MultilineInputDialog:
         self.dialog.destroy()
         if self._done_event is not None:
             self._done_event.set()
+
+    def _on_height_change(self, event=None):
+        """Called when the user changes the height spinbox value.
+        Resizes the dialog window and persists the new height to dialog_config.json."""
+        try:
+            new_height = int(self._height_var.get())
+            new_height = max(300, min(1500, new_height))
+            # Get current width and apply the new height
+            current_geom = self.dialog.geometry()
+            width_part = current_geom.split('x')[0]
+            self.dialog.geometry(f"{width_part}x{new_height}")
+            _save_persisted_dialog_height(new_height)
+        except (ValueError, tk.TclError):
+            pass  # Ignore invalid spinbox values
 
 # MCP Tools
 

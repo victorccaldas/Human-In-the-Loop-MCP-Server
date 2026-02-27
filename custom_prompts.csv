@@ -1,4 +1,6 @@
 active,prompt
 1,Make the necessary revisions and request for my validation via #get_multiline_input tool so that I can provide the necessary feedback.
+0,No further assistance needed. Conclude the session by providing your findings in a final response.
+0,Plan the implementation and delegate the tasks to subagents. You have up to 4 subagents at your disposal. Use them wisely to accomplish the task efficiently.
 0,Test prompt
 0,Third prompt
