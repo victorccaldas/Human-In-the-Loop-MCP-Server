@@ -97,6 +97,11 @@ def _get_tool_timeout() -> Optional[float]:
 _gui_initialized = False
 _gui_lock = threading.Lock()
 
+# Persistent GUI thread, root, and request queue for concurrent dialog support
+_persistent_root = None
+_persistent_gui_thread = None
+_dialog_request_queue = None  # thread-safe queue; worker threads post callables here
+
 def get_system_font():
     """Get appropriate system font for the current platform"""
     if IS_MACOS:
@@ -338,6 +343,50 @@ def ensure_gui_initialized():
                 print(f"Warning: GUI initialization failed: {e}")
                 _gui_initialized = False
         return _gui_initialized
+
+def _ensure_persistent_root():
+    """Ensure a single Tk root + polling loop run on a dedicated GUI thread.
+
+    Worker threads post callables to _dialog_request_queue; the GUI thread's
+    polling loop dequeues and executes them, making it safe to create/destroy
+    Toplevel widgets from multiple concurrent worker threads.
+    """
+    global _persistent_root, _persistent_gui_thread, _dialog_request_queue
+    with _gui_lock:
+        if _persistent_gui_thread is not None and _persistent_gui_thread.is_alive():
+            return _persistent_root
+        import queue as _queue_module
+        _dialog_request_queue = _queue_module.Queue()
+        ready = threading.Event()
+
+        def _poll():
+            """Drain the request queue and re-schedule (runs on GUI thread)."""
+            try:
+                while True:
+                    fn = _dialog_request_queue.get_nowait()
+                    try:
+                        fn()
+                    except Exception as exc:
+                        print(f"Error in dialog request: {exc}")
+            except Exception:
+                pass  # queue.Empty — nothing to do
+            if _persistent_root and _persistent_root.winfo_exists():
+                _persistent_root.after(30, _poll)
+
+        def _gui_loop():
+            global _persistent_root
+            _persistent_root = tk.Tk()
+            _persistent_root.withdraw()  # hidden root; all dialogs are Toplevels
+            ready.set()
+            _persistent_root.after(30, _poll)  # start the polling loop
+            _persistent_root.mainloop()
+
+        _persistent_gui_thread = threading.Thread(
+            target=_gui_loop, daemon=True, name="tkinter-gui-thread"
+        )
+        _persistent_gui_thread.start()
+        ready.wait(timeout=5)
+    return _persistent_root
 
 def configure_window_for_platform(window):
     """Apply platform-specific window configurations"""
@@ -784,14 +833,41 @@ def create_choice_dialog(title: str, prompt: str, choices: List[str], allow_mult
         return None
 
 def create_multiline_input_dialog(title: str, prompt: str, default_value: str = ""):
-    """Create a multi-line text input dialog"""
+    """Create a multi-line text input dialog.
+
+    Uses a persistent Tk root on a dedicated GUI thread so multiple
+    calls can be active simultaneously without blocking each other.
+    """
     try:
-        root = tk.Tk()
-        root.withdraw()
-        dialog = MultilineInputDialog(root, title, prompt, default_value)
-        result = dialog.result
-        root.destroy()
-        return result
+        root = _ensure_persistent_root()
+        if root is None:
+            return None
+        done = threading.Event()
+        dialog_holder = [None]
+
+        def _create_on_gui_thread():
+            try:
+                dialog_holder[0] = MultilineInputDialog(
+                    root, title, prompt, default_value, done_event=done
+                )
+                # Ensure the new window is visible and on top of others
+                try:
+                    dialog_holder[0].dialog.lift()
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"Error creating dialog on GUI thread: {e}")
+                done.set()  # unblock caller even on error
+
+        # Post to the GUI thread via the thread-safe queue.
+        # The polling loop (_poll) picks this up within ~30ms.
+        _dialog_request_queue.put(_create_on_gui_thread)
+        timeout = _get_tool_timeout()
+        done.wait(timeout=timeout)
+
+        if dialog_holder[0] is not None:
+            return dialog_holder[0].result
+        return None
     except Exception as e:
         print(f"Error in multiline dialog: {e}")
         return None
@@ -962,8 +1038,8 @@ class ChoiceDialog:
         self.dialog.bind('<Return>', lambda e: self.ok_clicked())
         self.dialog.bind('<Escape>', lambda e: self.cancel_clicked())
         
-        # Wait for the dialog to complete
-        self.dialog.wait_window()
+        # No wait_window() here — the caller blocks on self._done_event instead,
+        # allowing multiple dialogs to be open simultaneously.
     
     def center_window(self):
         """Center the dialog window on screen"""
@@ -999,8 +1075,9 @@ class ChoiceDialog:
         self.dialog.destroy()
 
 class MultilineInputDialog:
-    def __init__(self, parent, title, prompt, default_value=""):
+    def __init__(self, parent, title, prompt, default_value="", done_event=None):
         self.result = None
+        self._done_event = done_event  # set by ok/cancel to unblock the caller
         
         # Get theme colors
         self.theme_colors = get_theme_colors()
@@ -1016,11 +1093,11 @@ class MultilineInputDialog:
 
         # Set size based on platform
         if IS_MACOS:
-            self.dialog.geometry("580x480")
+            self.dialog.geometry("580x510")
         elif IS_WINDOWS:
-            self.dialog.geometry("600x500")
+            self.dialog.geometry("600x530")
         else:
-            self.dialog.geometry("550x450")
+            self.dialog.geometry("550x480")
         
         self.center_window()
         
@@ -1054,7 +1131,7 @@ class MultilineInputDialog:
 
         prompt_text = tk.Text(
             prompt_inner,
-            height=5,
+            height=8,
             wrap="word",
             bg=self.theme_colors["bg_primary"],
             fg=self.theme_colors["fg_secondary"],
@@ -1157,8 +1234,8 @@ class MultilineInputDialog:
         self._reminder_id = None
         self._reminder_id = self.dialog.after(60000, self._reminder)
 
-        # Wait for the dialog to complete
-        self.dialog.wait_window()
+        # No wait_window() here — the caller thread blocks on self._done_event.wait()
+        # instead, allowing multiple dialogs to be open and active simultaneously.
     
     def center_window(self):
         """Center the dialog window on screen"""
@@ -1211,6 +1288,8 @@ class MultilineInputDialog:
             base = base + separator + "\n\n".join(checked)
         self.result = base
         self.dialog.destroy()
+        if self._done_event is not None:
+            self._done_event.set()
 
     def cancel_clicked(self):
         # Cancel the periodic reminder before closing
@@ -1221,6 +1300,8 @@ class MultilineInputDialog:
             pass
         self.result = None
         self.dialog.destroy()
+        if self._done_event is not None:
+            self._done_event.set()
 
 # MCP Tools
 
@@ -1381,11 +1462,12 @@ async def get_multiline_input(
                 "platform": CURRENT_PLATFORM
             }
         
-        # Create the dialog in a separate thread
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(create_multiline_input_dialog, title, prompt, default_value)
-            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
+        # Run the blocking dialog function in a thread pool without blocking
+        # the asyncio event loop — this allows multiple concurrent calls.
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, create_multiline_input_dialog, title, prompt, default_value
+        )
         
         if result is not None:
             if ctx:
