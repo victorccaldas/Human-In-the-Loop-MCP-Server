@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """
 Human-in-the-Loop MCP Server
 
@@ -32,30 +32,66 @@ IS_LINUX = CURRENT_PLATFORM == 'linux'
 # Initialize the MCP server
 mcp = FastMCP("Human-in-the-Loop Server")
 
-# Keys for environment-based injection support. Supports uppercase or lowercase name.
-INJECTION_ENV_KEYS = ("POST_MULTILINE_INPUT_INJECTION", "post_multiline_input_injection")
+def _get_multiline_input_custom_prompts() -> list:
+    """Return list of (active: bool, text: str) tuples for dialog checkboxes.
 
-def _get_multiline_input_injection() -> str:
-    """Return the configured injection sentence read only from CLI args.
+    Reads from custom_prompts.csv next to this script (format: active,prompt).
+    Falls back to --multiline_input_custom_prompts= CLI args (all active=True).
+    The CSV is re-read on every dialog open, so edits take effect immediately.
+    """
+    import csv as _csv
+    # Try CSV file first
+    try:
+        csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "custom_prompts.csv")
+        if os.path.isfile(csv_path):
+            prompts = []
+            with open(csv_path, encoding="utf-8", newline="") as fh:
+                reader = _csv.DictReader(fh)
+                for row in reader:
+                    text = (row.get("prompt") or "").strip()
+                    if text:
+                        active = str(row.get("active", "1")).strip() not in ("0", "false", "False", "no")
+                        prompts.append((active, text))
+            if prompts:
+                return prompts
+    except Exception:
+        pass
+
+    # Fallback: CLI args (all pre-checked)
+    prompts = []
+    try:
+        argv = sys.argv[1:]
+        for i, a in enumerate(argv):
+            if a.startswith("--multiline_input_custom_prompts=") or a.startswith("multiline_input_custom_prompts="):
+                prompts.append((True, a.split("=", 1)[1]))
+            elif a in ("--multiline_input_custom_prompts", "multiline_input_custom_prompts"):
+                if i + 1 < len(argv):
+                    prompts.append((True, argv[i + 1]))
+    except Exception:
+        pass
+    return prompts
+def _get_tool_timeout() -> Optional[float]:
+    """Return the tool dialog timeout in seconds read from CLI args.
 
     Expected CLI forms:
-      --post_multiline_input_injection=...
-      --post-multiline-input-injection=...
-      post_multiline_input_injection=...
-    If not present, returns empty string.
+      --tool-timeout=<seconds>   (e.g. 99999999 for effectively no timeout)
+      --tool_timeout=<seconds>
+    If not present or the value is <= 0, returns None (no timeout).
     """
     try:
         argv = sys.argv[1:]
         for i, a in enumerate(argv):
-            if a.startswith("--post_multiline_input_injection=") or a.startswith("post_multiline_input_injection=") or a.startswith("--post-multiline-input-injection=") or a.startswith("post-multiline-input-injection="):
-                return a.split("=", 1)[1]
-            if a in ("--post_multiline_input_injection", "--post-multiline-input-injection", "post_multiline_input_injection", "post-multiline-input-injection"):
+            if a.startswith("--tool-timeout=") or a.startswith("--tool_timeout="):
+                value = float(a.split("=", 1)[1])
+                return value if value > 0 else None
+            if a in ("--tool-timeout", "--tool_timeout"):
                 if i + 1 < len(argv):
-                    return argv[i + 1]
+                    value = float(argv[i + 1])
+                    return value if value > 0 else None
     except Exception:
         pass
 
-    return ""
+    return 300.0  # default: 5 minutes
 
 # Global variable to ensure GUI is initialized properly
 _gui_initialized = False
@@ -972,12 +1008,12 @@ class MultilineInputDialog:
         # Create the dialog window
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(title)
-        self.dialog.grab_set()
+        # grab_set() intentionally omitted -- it prevents minimizing on Windows.
         self.dialog.resizable(True, True)
-        
+
         # Apply modern window styling
         configure_modern_window(self.dialog)
-        
+
         # Set size based on platform
         if IS_MACOS:
             self.dialog.geometry("580x480")
@@ -1065,10 +1101,34 @@ class MultilineInputDialog:
         # Set default value with better formatting
         if default_value:
             self.text_widget.insert("1.0", default_value)
-        
+
+        # Custom prompt checkboxes loaded from custom_prompts.csv
+        self.prompt_vars = []
+        custom_prompts = _get_multiline_input_custom_prompts()
+        if custom_prompts:
+            checkbox_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_secondary"])
+            checkbox_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+            for active, sentence in custom_prompts:
+                var = tk.BooleanVar(value=active)
+                cb = tk.Checkbutton(
+                    checkbox_frame,
+                    text=sentence,
+                    variable=var,
+                    bg=self.theme_colors["bg_secondary"],
+                    fg=self.theme_colors["fg_secondary"],
+                    selectcolor=self.theme_colors["bg_primary"],
+                    activebackground=self.theme_colors["bg_secondary"],
+                    font=get_system_font(),
+                    anchor="w",
+                    wraplength=520,
+                    justify="left",
+                )
+                cb.pack(fill="x", padx=8, pady=2)
+                self.prompt_vars.append(var)
+
         # Modern button frame
         button_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
-        button_frame.grid(row=3, column=0, sticky="ew")
+        button_frame.grid(row=4, column=0, sticky="ew")
         
         # Create modern buttons
         self.ok_button = create_modern_button(
@@ -1084,17 +1144,19 @@ class MultilineInputDialog:
         # Handle window close
         self.dialog.protocol("WM_DELETE_WINDOW", self.cancel_clicked)
         
-        # Focus on text widget
-        self.text_widget.focus_set()
-        
-        # Platform-specific final setup
-        if IS_MACOS:
-            self.dialog.after(100, lambda: self.text_widget.focus_set())
-        
         # Add keyboard shortcuts
         self.dialog.bind('<Control-Return>', lambda e: self.ok_clicked())
         self.dialog.bind('<Escape>', lambda e: self.cancel_clicked())
-        
+
+        # Disable always-on-top so the window can be freely minimized.
+        # Must come after configure_modern_window which sets topmost=True on Windows.
+        self.dialog.attributes('-topmost', False)
+        self.text_widget.focus_set()
+
+        # Resurface every 60 seconds to remind the user the dialog is still open
+        self._reminder_id = None
+        self._reminder_id = self.dialog.after(60000, self._reminder)
+
         # Wait for the dialog to complete
         self.dialog.wait_window()
     
@@ -1120,11 +1182,43 @@ class MultilineInputDialog:
         
         self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
+    def _reminder(self):
+        """Resurface the dialog every 60 seconds ONLY if it is minimized."""
+        try:
+            if self.dialog.winfo_exists():
+                # Only restore and lift when actually minimized; don't disturb an active window
+                if self.dialog.wm_state() == 'iconic':
+                    self.dialog.deiconify()
+                    self.dialog.lift()
+                # Schedule the next reminder
+                self._reminder_id = self.dialog.after(60000, self._reminder)
+        except Exception:
+            pass
+
     def ok_clicked(self):
-        self.result = self.text_widget.get("1.0", tk.END).strip()
+        # Cancel the periodic reminder before closing
+        try:
+            if self._reminder_id is not None:
+                self.dialog.after_cancel(self._reminder_id)
+        except Exception:
+            pass
+        base = self.text_widget.get("1.0", tk.END).strip()
+        # Append checked custom prompts to the answer
+        custom_prompts = _get_multiline_input_custom_prompts()
+        checked = [text for (_active, text), var in zip(custom_prompts, self.prompt_vars) if var.get()]
+        if checked:
+            separator = "\n\n" if base else ""
+            base = base + separator + "\n\n".join(checked)
+        self.result = base
         self.dialog.destroy()
-    
+
     def cancel_clicked(self):
+        # Cancel the periodic reminder before closing
+        try:
+            if self._reminder_id is not None:
+                self.dialog.after_cancel(self._reminder_id)
+        except Exception:
+            pass
         self.result = None
         self.dialog.destroy()
 
@@ -1140,14 +1234,14 @@ async def get_user_input(
 ) -> Dict[str, Any]:
     """
     Create an input dialog window for the user to enter text, numbers, or other data.
-    
+
     This tool opens a GUI dialog box where the user can input information that the LLM needs.
     Perfect for getting specific details, clarifications, or data from the user.
     """
     try:
         if ctx:
             await ctx.info(f"Requesting user input: {prompt}")
-        
+
         # Ensure GUI is initialized
         if not ensure_gui_initialized():
             return {
@@ -1156,13 +1250,13 @@ async def get_user_input(
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
-        
+
         # Create the dialog in a separate thread to avoid blocking
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(create_input_dialog, title, prompt, default_value, input_type)
-            result = future.result(timeout=300)  # 5 minute timeout
-        
+            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
+
         if result is not None:
             if ctx:
                 await ctx.info(f"User provided input: {result}")
@@ -1183,7 +1277,7 @@ async def get_user_input(
                 "cancelled": True,
                 "platform": CURRENT_PLATFORM
             }
-    
+
     except Exception as e:
         if ctx:
             await ctx.error(f"Error creating input dialog: {str(e)}")
@@ -1226,7 +1320,7 @@ async def get_user_choice(
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(create_choice_dialog, title, prompt, choices, allow_multiple)
-            result = future.result(timeout=300)  # 5 minute timeout
+            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
         
         if result is not None:
             if ctx:
@@ -1291,25 +1385,16 @@ async def get_multiline_input(
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(create_multiline_input_dialog, title, prompt, default_value)
-            result = future.result(timeout=300)  # 5 minute timeout
+            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
         
         if result is not None:
-            # Append configured injection sentence to the user's submitted answer (if any).
-            injection = _get_multiline_input_injection()
-            final_value = result
-            if injection:
-                if final_value:
-                    final_value = final_value + "\n\n" + injection
-                else:
-                    final_value = injection
-
             if ctx:
-                await ctx.info(f"User provided multiline input ({len(final_value)} characters)")
+                await ctx.info(f"User provided multiline input ({len(result)} characters)")
             return {
                 "success": True,
-                "user_input": final_value,
-                "character_count": len(final_value),
-                "line_count": len(final_value.split('\n')),
+                "user_input": result,
+                "character_count": len(result),
+                "line_count": len(result.split('\n')),
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -1362,7 +1447,7 @@ async def show_confirmation_dialog(
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(show_confirmation, title, message)
-            result = future.result(timeout=300)  # 5 minute timeout
+            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
         
         if ctx:
             await ctx.info(f"User confirmation result: {'Yes' if result else 'No'}")
@@ -1412,7 +1497,7 @@ async def show_info_message(
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(show_info, title, message)
-            result = future.result(timeout=300)  # 5 minute timeout
+            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
         
         if ctx:
             await ctx.info("Info message acknowledged by user")
