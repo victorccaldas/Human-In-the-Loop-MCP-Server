@@ -33,10 +33,10 @@ IS_LINUX = CURRENT_PLATFORM == 'linux'
 mcp = FastMCP("Human-in-the-Loop Server")
 
 def _get_multiline_input_custom_prompts() -> list:
-    """Return list of (active: bool, text: str) tuples for dialog checkboxes.
+    """Return list of (active: bool, active_color: str, text: str) checkbox tuples.
 
-    Reads from custom_prompts.csv next to this script (format: active,prompt).
-    Falls back to --multiline_input_custom_prompts= CLI args (all active=True).
+    Reads from custom_prompts.csv next to this script (format: active,active_color,prompt).
+    Falls back to --multiline_input_custom_prompts= CLI args (all active=True, active_color='0').
     The CSV is re-read on every dialog open, so edits take effect immediately.
     """
     import csv as _csv
@@ -51,7 +51,8 @@ def _get_multiline_input_custom_prompts() -> list:
                     text = (row.get("prompt") or "").strip()
                     if text:
                         active = str(row.get("active", "1")).strip() not in ("0", "false", "False", "no")
-                        prompts.append((active, text))
+                        active_color = (row.get("active_color") or "0").strip()
+                        prompts.append((active, active_color, text))
             if prompts:
                 return prompts
     except Exception:
@@ -63,13 +64,28 @@ def _get_multiline_input_custom_prompts() -> list:
         argv = sys.argv[1:]
         for i, a in enumerate(argv):
             if a.startswith("--multiline_input_custom_prompts=") or a.startswith("multiline_input_custom_prompts="):
-                prompts.append((True, a.split("=", 1)[1]))
+                prompts.append((True, "0", a.split("=", 1)[1]))
             elif a in ("--multiline_input_custom_prompts", "multiline_input_custom_prompts"):
                 if i + 1 < len(argv):
-                    prompts.append((True, argv[i + 1]))
+                    prompts.append((True, "0", argv[i + 1]))
     except Exception:
         pass
     return prompts
+
+
+def _normalize_tk_color(value: str) -> Optional[str]:
+    """Normalize custom color values for Tkinter.
+
+    - Returns None for empty/disabled values (e.g. "0").
+    - Converts hyphen/underscore names (e.g. "light-coral") to Tk-friendly
+      space-separated names ("light coral").
+    """
+    color = str(value or "").strip()
+    if not color or color == "0":
+        return None
+    return color.replace("-", " ").replace("_", " ")
+
+
 def _get_tool_timeout() -> Optional[float]:
     """Return the tool dialog timeout in seconds read from CLI args.
 
@@ -1111,6 +1127,8 @@ class MultilineInputDialog:
         
         # Get theme colors
         self.theme_colors = get_theme_colors()
+        self._base_bg_primary = self.theme_colors["bg_primary"]
+        self._base_bg_secondary = self.theme_colors["bg_secondary"]
         
         # Create the dialog window
         self.dialog = tk.Toplevel(parent)
@@ -1130,6 +1148,7 @@ class MultilineInputDialog:
         # Create the main frame with modern styling
         main_frame = tk.Frame(self.dialog, bg=self.theme_colors["bg_primary"])
         main_frame.pack(fill="both", expand=True, padx=24, pady=20)
+        self.main_frame = main_frame
         
         # Configure grid weights
         main_frame.columnconfigure(0, weight=1)
@@ -1145,15 +1164,18 @@ class MultilineInputDialog:
             anchor="w"
         )
         title_label.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        self.title_label = title_label
         
         # Prompt area (fixed height + scrollable) so very long prompts remain readable
         prompt_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
         prompt_container.grid(row=1, column=0, sticky="ew", pady=(0,20))
         prompt_container.columnconfigure(0, weight=1)
+        self.prompt_container = prompt_container
 
         prompt_inner = tk.Frame(prompt_container, bg=self.theme_colors["bg_primary"])
         prompt_inner.pack(fill="both", expand=True)
         prompt_inner.columnconfigure(0, weight=1)
+        self.prompt_inner = prompt_inner
 
         prompt_text = tk.Text(
             prompt_inner,
@@ -1171,6 +1193,7 @@ class MultilineInputDialog:
         prompt_text.insert("1.0", prompt)
         prompt_text.configure(state="disabled")
         prompt_text.grid(row=0, column=0, sticky="nsew")
+        self.prompt_text = prompt_text
 
         prompt_scroll = tk.Scrollbar(prompt_inner, orient="vertical", command=prompt_text.yview, width=14)
         apply_modern_style(prompt_scroll, "scrollbar", self.theme_colors)
@@ -1183,12 +1206,14 @@ class MultilineInputDialog:
                                fg=self.theme_colors["fg_secondary"],
                                font=(get_system_font()[0], max(get_system_font()[1]-1, 9), "bold"))
         arrow_label.grid(row=0, column=2, sticky="n", padx=(6,4), pady=(2,0))
+        self.arrow_label = arrow_label
 
         # Create text widget container with modern styling
         text_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
         text_container.grid(row=2, column=0, sticky="nsew", pady=(0, 24))
         text_container.columnconfigure(0, weight=1)
         text_container.rowconfigure(0, weight=1)
+        self.text_container = text_container
         
         # Modern text widget
         self.text_widget = tk.Text(text_container, height=12)
@@ -1207,35 +1232,73 @@ class MultilineInputDialog:
 
         # Custom prompt checkboxes loaded from custom_prompts.csv
         self.prompt_vars = []
+        self.prompt_meta = []
         custom_prompts = _get_multiline_input_custom_prompts()
         if custom_prompts:
             checkbox_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_secondary"])
             checkbox_frame.grid(row=3, column=0, sticky="ew", pady=(0, 8))
-            for active, sentence in custom_prompts:
+            self.checkbox_frame = checkbox_frame
+            for active, active_color, sentence in custom_prompts:
                 var = tk.BooleanVar(value=active)
+
+                row_frame = tk.Frame(checkbox_frame, bg=self.theme_colors["bg_secondary"])
+                row_frame.pack(fill="x", padx=8, pady=2)
+
                 cb = tk.Checkbutton(
-                    checkbox_frame,
-                    text=sentence,
+                    row_frame,
+                    text="",
                     variable=var,
+                    command=self._on_prompt_selection_change,
                     bg=self.theme_colors["bg_secondary"],
                     fg=self.theme_colors["fg_secondary"],
                     selectcolor=self.theme_colors["bg_primary"],
                     activebackground=self.theme_colors["bg_secondary"],
                     font=get_system_font(),
-                    anchor="w",
-                    wraplength=520,
-                    justify="left",
                 )
-                cb.pack(fill="x", padx=8, pady=2)
+                cb.pack(side=tk.LEFT)
+
+                text_height = max(1, min(6, (len(sentence) // 75) + 1))
+                row_text = tk.Text(
+                    row_frame,
+                    height=text_height,
+                    wrap="word",
+                    bg=self.theme_colors["bg_secondary"],
+                    fg=self.theme_colors["fg_secondary"],
+                    font=get_system_font(),
+                    relief="flat",
+                    borderwidth=0,
+                    padx=2,
+                    pady=1,
+                    highlightthickness=0,
+                    cursor="xterm",
+                )
+                row_text.insert("1.0", sentence)
+                row_text.configure(state="disabled")
+                row_text.pack(side=tk.LEFT, fill="x", expand=True, padx=(6, 0))
+                row_text.bind("<Button-1>", lambda e, w=row_text: w.focus_set())
+                row_text.bind("<Control-c>", self._copy_selected_prompt_text)
+                row_text.bind("<Control-C>", self._copy_selected_prompt_text)
+
                 self.prompt_vars.append(var)
+                self.prompt_meta.append({
+                    "active_color": active_color,
+                    "checkbutton": cb,
+                    "text_widget": row_text,
+                    "row_frame": row_frame,
+                    "var": var,
+                })
+        else:
+            self.checkbox_frame = None
 
         # Modern button frame
         button_frame = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
         button_frame.grid(row=4, column=0, sticky="ew")
+        self.button_frame = button_frame
         
                 # Height configurator (left side of button row)
         height_ctrl_frame = tk.Frame(button_frame, bg=self.theme_colors["bg_primary"])
         height_ctrl_frame.pack(side=tk.LEFT, padx=(0, 0))
+        self.height_ctrl_frame = height_ctrl_frame
         tk.Label(
             height_ctrl_frame,
             text="Window height:",
@@ -1281,6 +1344,9 @@ class MultilineInputDialog:
         self.dialog.attributes('-topmost', False)
         self.text_widget.focus_set()
 
+        # Apply initial active-color state based on pre-checked prompts
+        self._on_prompt_selection_change()
+
         # Resurface every 60 seconds to remind the user the dialog is still open
         self._reminder_id = None
         self._reminder_id = self.dialog.after(60000, self._reminder)
@@ -1323,6 +1389,62 @@ class MultilineInputDialog:
         except Exception:
             pass
 
+    def _on_prompt_selection_change(self):
+        """Apply active_color only to selected checkbox rows and text object.
+
+        - active_color=0 is ignored.
+        - The dialog/window and text input backgrounds are not changed.
+        """
+        try:
+            default_row_bg = "light gray"
+            try:
+                self.dialog.winfo_rgb(default_row_bg)
+            except Exception:
+                default_row_bg = self._base_bg_secondary
+
+            # Update each checkbox row independently.
+            for meta in self.prompt_meta:
+                cb = meta["checkbutton"]
+                row_text = meta["text_widget"]
+                row_frame = meta["row_frame"]
+                row_color = None
+                is_checked = meta["var"].get()
+                if is_checked:
+                    normalized = _normalize_tk_color(meta.get("active_color", "0"))
+                    if normalized:
+                        try:
+                            self.dialog.winfo_rgb(normalized)
+                            row_color = normalized
+                        except Exception:
+                            row_color = None
+
+                if is_checked:
+                    target_row_bg = row_color or default_row_bg
+                else:
+                    target_row_bg = self._base_bg_secondary
+                row_frame.configure(bg=target_row_bg)
+                cb.configure(
+                    bg=target_row_bg,
+                    activebackground=target_row_bg,
+                    selectcolor=self._base_bg_primary,
+                )
+                row_text.configure(bg=target_row_bg)
+        except Exception:
+            pass
+
+    def _copy_selected_prompt_text(self, event=None):
+        """Copy selected text from a prompt row text widget using Ctrl+C."""
+        try:
+            widget = event.widget
+            if widget.tag_ranges("sel"):
+                selected = widget.get("sel.first", "sel.last")
+                if selected:
+                    self.dialog.clipboard_clear()
+                    self.dialog.clipboard_append(selected)
+        except Exception:
+            pass
+        return "break"
+
     def ok_clicked(self):
         # Cancel the periodic reminder before closing
         try:
@@ -1333,7 +1455,7 @@ class MultilineInputDialog:
         base = self.text_widget.get("1.0", tk.END).strip()
         # Append checked custom prompts to the answer
         custom_prompts = _get_multiline_input_custom_prompts()
-        checked = [text for (_active, text), var in zip(custom_prompts, self.prompt_vars) if var.get()]
+        checked = [text for (_active, _active_color, text), var in zip(custom_prompts, self.prompt_vars) if var.get()]
         if checked:
             separator = "\n\n" if base else ""
             base = base + separator + "\n\n".join(checked)
