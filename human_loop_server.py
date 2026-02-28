@@ -1701,7 +1701,9 @@ You have access to Human-in-the-Loop tools that allow you to interact directly w
 - Use confirmation dialogs before destructive actions
 - Give status updates for long-running processes
 - Offer meaningful choices rather than overwhelming options
-- Be concise but informative in dialog prompts""",
+- Be concise but informative in dialog prompts
+- Use \n for line breaks (no escaping needed) to format messages clearly
+""",
         
         "usage_examples": """
 **EXAMPLE SCENARIOS:**
