@@ -12,6 +12,7 @@ import json
 import platform
 import subprocess
 import threading
+import time
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 from typing import List, Dict, Any, Optional, Literal
@@ -1741,10 +1742,10 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
                 if tg_msg_id:
                     print(f"[RemoteInput] Telegram prompt sent (msg_id={tg_msg_id})")
                 else:
-                    print("[RemoteInput] Failed to send Telegram prompt — continuing with tkinter only")
+                    print("[RemoteInput] Failed to send Telegram prompt -- continuing with tkinter only")
                     tg_bridge = None
             except Exception as exc:
-                print(f"[RemoteInput] Telegram init error: {exc} — continuing with tkinter only")
+                print(f"[RemoteInput] Telegram init error: {exc} -- continuing with tkinter only")
                 tg_bridge = None
 
         telegram_active = tg_bridge is not None and tg_msg_id is not None
@@ -1855,34 +1856,83 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
         if tg_cancel is not None:
             tg_cancel.set()  # ensure poller stops
 
+        # File-based diagnostic logger (charmap-safe: writes UTF-8 to file,
+        # ASCII-only to stdout to avoid Windows encoding errors).
+        _diag_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_remote_input_diag.log")
+        def _diag(msg):
+            try:
+                with open(_diag_log, "a", encoding="utf-8") as f:
+                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+            except Exception:
+                pass
+            try:
+                safe = msg.encode("ascii", "replace").decode("ascii")
+                print(f"[RemoteInput] {safe}")
+            except Exception:
+                pass
+
+        _diag(f"Cleanup reached. tg_bridge={tg_bridge is not None}, tg_msg_id={tg_msg_id}")
+
         if tg_bridge and tg_msg_id:
             source = result_container.get("source")
             text   = result_container.get("text")
+            _diag(f"source={source}, text_len={len(text) if text else 0}")
+
+            # Small delay when the reply came from Telegram — gives the API
+            # time to fully process the reply before we edit the prompt message.
+            if source == "telegram":
+                time.sleep(0.5)
+
+            # Truncate the original prompt for the edited message (keep it visible)
+            original_prompt_truncated = prompt[:3000]
+            if len(prompt) > 3000:
+                original_prompt_truncated += "\n...(truncated)"
+
+            # Build the edited message: original prompt text + status footer.
+            # This preserves the original content while adding the resolution.
+            if source == "telegram":
+                display_text = (text or "")[:2000]
+                status_label = "Responded via Telegram"
+                status_footer = f"\u2705 {status_label}:\n\n{display_text}"
+            elif source == "tkinter" and text is not None:
+                display_text = (text or "")[:2000]
+                status_label = "Answered via local dialog"
+                status_footer = f"\u2705 {status_label}:\n\n{display_text}"
+            elif source == "tkinter" and text is None:
+                status_label = "Cancelled locally"
+                status_footer = f"\u274c {status_label}"
+            else:
+                status_label = "Timed out"
+                status_footer = f"\u23f0 {status_label}"
+
+            edited_text = (
+                f"\U0001f5a5\ufe0f {title}\n\n"
+                f"{original_prompt_truncated}\n\n"
+                f"---\n"
+                f"{status_footer}"
+            )
+
+            _diag(f"Editing Telegram message (msg_id={tg_msg_id}, status={status_label})")
+
+            # Edit the prompt message (sent without reply_markup, so editable)
+            ok = False
             try:
-                if source == "telegram":
-                    # Truncate for Telegram's message length limit
-                    display_text = (text or "")[:3000]
-                    tg_bridge.edit_message(
-                        tg_msg_id,
-                        f"✅ Responded via Telegram:\n\n{display_text}"
-                    )
-                elif source == "tkinter" and text is not None:
-                    tg_bridge.edit_message(
-                        tg_msg_id,
-                        "✅ Answered via local dialog. (This prompt is no longer active)"
-                    )
-                elif source == "tkinter" and text is None:
-                    tg_bridge.edit_message(
-                        tg_msg_id,
-                        "❌ Cancelled locally. (This prompt is no longer active)"
-                    )
-                else:
-                    tg_bridge.edit_message(
-                        tg_msg_id,
-                        "⏰ Timed out. (This prompt is no longer active)"
-                    )
-            except Exception:
-                pass
+                ok = tg_bridge.edit_message(tg_msg_id, edited_text)
+                _diag(f"edit_message returned: {ok}")
+            except Exception as exc:
+                _diag(f"edit_message exception: {exc}")
+
+            # Fallback: if edit failed, send a follow-up reply instead
+            if not ok:
+                try:
+                    ok = tg_bridge.send_status(tg_msg_id, status_footer)
+                    _diag(f"send_status fallback returned: {ok}")
+                except Exception as exc:
+                    _diag(f"send_status fallback exception: {exc}")
+
+            _diag(f"Final result: {'OK' if ok else 'FAILED'}")
+        else:
+            _diag(f"Skipped Telegram cleanup (bridge or msg_id not set)")
 
         return result_container.get("text")
 

@@ -70,19 +70,27 @@ class TelegramBridge:
     # ------------------------------------------------------------------
 
     def send_prompt(self, title: str, prompt: str) -> Optional[int]:
-        """Send the prompt to the personal chat with ForceReply markup.
+        """Send the prompt to the personal chat as a single editable message.
 
-        Returns the sent message_id, or None on failure.
+        The message is sent **without** ``reply_markup`` so that it can be
+        edited later via ``editMessageText`` (Telegram only allows editing
+        messages that have no markup or an InlineKeyboard).
+
+        In a 1-on-1 private chat the user can simply swipe/long-press the
+        message to reply; ``ForceReply`` is unnecessary.
+
+        Returns the sent ``message_id``, or ``None`` on failure.
         """
         # Truncate prompt to Telegram's 4096 char limit (with room for header)
         max_prompt_len = 3800
         truncated = prompt[:max_prompt_len]
         if len(prompt) > max_prompt_len:
-            truncated += "\n…(truncated)"
+            truncated += "\n\\.\\.\\.(truncated)"
 
         text = (
-            f"🖥️ *{self._escape_md(title)}*\n\n"
+            f"\U0001f5a5\ufe0f *{self._escape_md(title)}*\n\n"
             f"{self._escape_md(truncated)}\n\n"
+            f"\u23f3 _Waiting for response\\.\\.\\._\n"
             f"_Reply to this message to respond\\._"
         )
         try:
@@ -92,32 +100,111 @@ class TelegramBridge:
                     "chat_id": self.chat_id,
                     "text": text,
                     "parse_mode": "MarkdownV2",
-                    "reply_markup": {"force_reply": True, "selective": False},
                 },
                 timeout=15,
             )
             if resp.status_code == 200:
                 return resp.json()["result"]["message_id"]
             else:
-                print(f"[TelegramBridge] send_prompt failed: {resp.status_code} {resp.text}")
+                try:
+                    print(f"[TelegramBridge] send_prompt failed: {resp.status_code}")
+                except UnicodeEncodeError:
+                    pass
         except Exception as exc:
-            print(f"[TelegramBridge] send_prompt error: {exc}")
+            try:
+                print(f"[TelegramBridge] send_prompt error: {exc}")
+            except UnicodeEncodeError:
+                pass
         return None
 
-    def edit_message(self, message_id: int, new_text: str) -> None:
-        """Edit a previously sent message (plain text, no parse_mode)."""
+    def edit_message(self, message_id: int, new_text: str, max_retries: int = 3) -> bool:
+        """Edit a previously sent message (plain text, no parse_mode).
+
+        Retries up to *max_retries* times on transient failures (network errors,
+        rate-limits, non-200 responses).  Returns True if the edit succeeded,
+        False otherwise.  Diagnostic details are written to _remote_input_diag.log.
+
+        Only works on messages sent WITHOUT reply_markup or with InlineKeyboard.
+        Messages sent with ForceReply cannot be edited (Telegram API limitation).
+        """
+        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
+        def _log(msg):
+            try:
+                with open(diag_path, "a", encoding="utf-8") as f:
+                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [edit_message] {msg}\n")
+            except Exception:
+                pass
+
+        for attempt in range(1, max_retries + 1):
+            try:
+                resp = requests.post(
+                    self._api("editMessageText"),
+                    json={
+                        "chat_id": self.chat_id,
+                        "message_id": message_id,
+                        "text": new_text,
+                    },
+                    timeout=10,
+                )
+                if resp.status_code == 200:
+                    _log(f"Attempt {attempt}: SUCCESS (HTTP 200)")
+                    return True
+                # Log full response for diagnosis
+                _log(f"Attempt {attempt}: FAILED HTTP {resp.status_code} - {resp.text}")
+            except Exception as exc:
+                _log(f"Attempt {attempt}: EXCEPTION - {exc}")
+            # Short back-off before next retry (skip sleep after last attempt)
+            if attempt < max_retries:
+                time.sleep(1)
+        _log("All retries exhausted.")
+        return False
+
+    def send_status(self, prompt_message_id: int, status_text: str) -> bool:
+        """Send a follow-up status message as a reply to the original prompt.
+
+        Used as a fallback when edit_message is not available (e.g. if the
+        status message was never created).
+
+        Returns True if the status message was sent successfully, False otherwise.
+        """
+        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
+        def _log(msg):
+            try:
+                with open(diag_path, "a", encoding="utf-8") as f:
+                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [send_status] {msg}\n")
+            except Exception:
+                pass
+
         try:
-            requests.post(
-                self._api("editMessageText"),
+            resp = requests.post(
+                self._api("sendMessage"),
                 json={
                     "chat_id": self.chat_id,
-                    "message_id": message_id,
-                    "text": new_text,
+                    "text": status_text,
+                    "reply_to_message_id": prompt_message_id,
+                    "allow_sending_without_reply": True,
                 },
                 timeout=10,
             )
+            if resp.status_code == 200:
+                _log(f"Status sent OK (replying to msg {prompt_message_id})")
+                return True
+            _log(f"Status send FAILED: HTTP {resp.status_code} - {resp.text}")
+        except Exception as exc:
+            _log(f"Status send EXCEPTION: {exc}")
+        return False
+
+    def delete_message(self, message_id: int) -> bool:
+        """Delete a message from the chat.  Returns True on success."""
+        try:
+            resp = requests.post(
+                self._api("deleteMessage"),
+                json={"chat_id": self.chat_id, "message_id": message_id},
+                timeout=10,
+            )
+            return resp.status_code == 200
         except Exception:
-            pass
+            return False
 
     # ------------------------------------------------------------------
     # Polling
@@ -181,9 +268,12 @@ class TelegramBridge:
                         return msg.get("text", "")
 
             except Exception as exc:
-                # requests.Timeout is expected — just loop
+                # requests.Timeout is expected - just loop
                 if "timeout" not in str(exc).lower():
-                    print(f"[TelegramBridge] poll error: {exc}")
+                    try:
+                        print(f"[TelegramBridge] poll error: {exc}")
+                    except UnicodeEncodeError:
+                        pass
                 time.sleep(poll_interval)
 
         return None
