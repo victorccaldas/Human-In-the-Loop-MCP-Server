@@ -14,6 +14,7 @@ A powerful **Model Context Protocol (MCP) Server** that enables AI assistants li
 - **Text Input**: Get text, numbers, or other data from users with validation
 - **Multiple Choice**: Present options for single or multiple selections  
 - **Multi-line Input**: Collect longer text content, code, or detailed descriptions
+- **Remote Input**: Multi-line input with **Telegram remote answering** — respond from the local dialog or from your phone
 - **Confirmation Dialogs**: Ask for yes/no decisions before proceeding with actions
 - **Information Messages**: Display notifications, status updates, and results
 - **Health Check**: Monitor server status and GUI availability
@@ -30,6 +31,7 @@ A powerful **Model Context Protocol (MCP) Server** that enables AI assistants li
 - **Modern UI Design**: Beautiful interface with smooth animations and hover effects
 - **Error Handling**: Comprehensive error reporting and graceful recovery
 - **Keyboard Navigation**: Full keyboard shortcuts support (Enter/Escape)
+- **Telegram Integration**: Optional remote answering via Telegram Bot API (entangled with local dialog)
 
 ## 📦 Installation & Setup
 
@@ -172,7 +174,31 @@ result = await get_multiline_input(
 )
 ```
 
-### 4. `show_confirmation_dialog`
+### 4. `get_remote_input`
+Collect text input with **entangled local + Telegram channels**. Opens the same multi-line dialog as `get_multiline_input` and simultaneously sends the prompt to a configured Telegram chat. The user can respond from **either** channel — the first response wins:
+
+- **Answering from tkinter** → cancels Telegram polling, edits the Telegram message to show "answered locally".
+- **Answering from Telegram** → closes the tkinter dialog, briefly shows "answered via Telegram" before closing.
+
+If Telegram is not configured, this tool behaves identically to `get_multiline_input`.
+
+**Parameters:**
+- `title` (str): Dialog window title
+- `prompt` (str): Question/prompt text
+- `default_value` (str): Pre-filled text (optional)
+
+**Example Usage:**
+```python
+result = await get_remote_input(
+    title="Review Required",
+    prompt="Please review the changes and provide feedback:",
+    default_value=""
+)
+```
+
+> **Setup:** See [Telegram Integration](#-telegram-integration) below.
+
+### 5. `show_confirmation_dialog`
 Ask for yes/no confirmation before proceeding.
 
 **Parameters:**
@@ -187,7 +213,7 @@ result = await show_confirmation_dialog(
 )
 ```
 
-### 5. `show_info_message`
+### 6. `show_info_message`
 Display information, notifications, or status updates.
 
 **Parameters:**
@@ -202,7 +228,7 @@ result = await show_info_message(
 )
 ```
 
-### 6. `health_check`
+### 7. `health_check`
 Check server status and GUI availability.
 
 **Example Usage:**
@@ -235,6 +261,7 @@ All tools return structured JSON responses:
 - **get_user_input**: `user_input`, `input_type`
 - **get_user_choice**: `selected_choice`, `selected_choices`, `allow_multiple`
 - **get_multiline_input**: `user_input`, `character_count`, `line_count`
+- **get_remote_input**: `user_input`, `character_count`, `line_count` (same as get_multiline_input)
 - **show_confirmation_dialog**: `confirmed`, `response`
 - **show_info_message**: `acknowledged`
 
@@ -298,7 +325,38 @@ tone = await get_user_choice(
 await show_info_message("Content Ready", "Your content has been generated successfully!")
 ```
 
-## 🔍 Troubleshooting
+## � Telegram Integration
+
+The `get_remote_input` tool optionally supports answering prompts from Telegram. This is useful when you step away from your desk but still want to respond to AI assistant questions from your phone.
+
+### Setup
+
+1. **Create a Telegram Bot** via [@BotFather](https://t.me/BotFather) and copy the bot token.
+2. **Get your Chat ID** by messaging your bot and visiting `https://api.telegram.org/bot<TOKEN>/getUpdates`.
+3. **Create `telegram_config.json`** in the server directory (use `telegram_config.example.json` as a template):
+   ```json
+   {
+     "bot_token": "YOUR_BOT_TOKEN",
+     "chat_id": "YOUR_CHAT_ID"
+   }
+   ```
+
+### How It Works
+
+1. When `get_remote_input` is called, the prompt is sent to both the local tkinter dialog **and** your Telegram chat.
+2. The Telegram message uses `ForceReply` markup — simply reply to it to respond.
+3. The first channel to receive a response wins:
+   - **Reply on Telegram** → the local dialog closes automatically.
+   - **Reply on tkinter** → the Telegram message is edited to show it's no longer active.
+4. The Telegram message is updated with the final status (✅ answered, ❌ cancelled, ⏰ timed out).
+
+### Notes
+
+- If `telegram_config.json` is missing or invalid, `get_remote_input` falls back to a plain tkinter dialog (no errors).
+- The `requests` Python library is required for Telegram support (`pip install requests`).
+- Each Telegram bot token supports only **one** `getUpdates` consumer at a time. If you use the same bot elsewhere with long-polling, consider using a dedicated bot for the MCP server.
+
+## �🔍 Troubleshooting
 
 ### Common Issues
 
@@ -340,12 +398,14 @@ HITL_DEBUG=1 uvx hitl-mcp-server
 ### Project Structure
 ```
 Human-In-the-Loop-MCP-Server/
-├── human_loop_server.py       # Main server implementation
-├── pyproject.toml            # Package configuration
-├── README.md                 # Documentation
-├── LICENSE                   # MIT License
-├── .gitignore               # Git ignore rules
-└── demo.gif                 # Demo animation
+├── human_loop_server.py            # Main server implementation
+├── _telegram_bridge.py             # Telegram Bot API wrapper for remote input
+├── telegram_config.example.json    # Template for Telegram credentials
+├── pyproject.toml                  # Package configuration
+├── README.md                       # Documentation
+├── LICENSE                         # MIT License
+├── .gitignore                      # Git ignore rules
+└── demo.gif                        # Demo animation
 ```
 
 ### Contributing
