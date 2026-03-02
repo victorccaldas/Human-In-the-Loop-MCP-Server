@@ -1,0 +1,9 @@
+{
+  "bot_token": "",
+  "chat_id": "",
+  "_chat_id_description": "Personal chat ID for 1-on-1 communication with the bot",
+  "_instructions": {
+    "bot_token": "Get this from @BotFather on Telegram",
+    "chat_id": "Get this from @username_to_id_bot or by sending a message to your bot and checking https://api.telegram.org/bot<token>/getUpdates"
+  }
+}

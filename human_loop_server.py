@@ -23,6 +23,14 @@ from typing import Annotated
 os.environ.setdefault('FASTMCP_LOG_LEVEL', 'INFO')
 from fastmcp import FastMCP, Context
 
+# Telegram bridge for remote input (optional — degrades gracefully if unconfigured)
+try:
+    from _telegram_bridge import TelegramBridge, is_telegram_configured
+except ImportError:
+    TelegramBridge = None  # type: ignore[misc, assignment]
+    def is_telegram_configured() -> bool:  # type: ignore[misc]
+        return False
+
 # Platform detection
 CURRENT_PLATFORM = platform.system().lower()
 IS_WINDOWS = CURRENT_PLATFORM == 'windows'
@@ -1687,6 +1695,276 @@ async def get_multiline_input(
             "platform": CURRENT_PLATFORM
         }
 
+
+# ---------------------------------------------------------------------------
+# Remote Input — Entangled tkinter + Telegram channels
+# ---------------------------------------------------------------------------
+
+def create_remote_input_dialog(title: str, prompt: str, default_value: str = ""):
+    """Create a multiline input dialog + Telegram prompt.
+
+    Opens the same tkinter MultilineInputDialog as ``get_multiline_input``, but
+    also sends the prompt to Telegram.  The user can answer from **either**
+    channel — the first response wins:
+
+    * **Tkinter answered** → cancel Telegram polling, edit Telegram message
+      to show "answered locally".
+    * **Telegram answered** → close the tkinter dialog, show a brief
+      "answered via Telegram" flash before closing.
+
+    If Telegram is not configured, this falls back to a plain tkinter dialog
+    (identical to ``create_multiline_input_dialog``).
+    """
+    try:
+        root = _ensure_persistent_root()
+        if root is None:
+            return None
+
+        # --- Shared synchronisation primitives ---
+        master_done = threading.Event()   # fires when EITHER channel answers
+        tg_cancel   = threading.Event()   # tells the TG poller to stop
+        tkinter_done = threading.Event()  # dialog's internal done event
+
+        result_container: Dict[str, Any] = {
+            "text": None,
+            "source": None,        # "tkinter" | "telegram" | None
+            "dialog": None,
+        }
+
+        # --- 1. Initialise Telegram bridge (optional) ---
+        tg_bridge: Optional[Any] = None
+        tg_msg_id: Optional[int] = None
+        if is_telegram_configured() and TelegramBridge is not None:
+            try:
+                tg_bridge = TelegramBridge()
+                tg_msg_id = tg_bridge.send_prompt(title, prompt)
+                if tg_msg_id:
+                    print(f"[RemoteInput] Telegram prompt sent (msg_id={tg_msg_id})")
+                else:
+                    print("[RemoteInput] Failed to send Telegram prompt — continuing with tkinter only")
+                    tg_bridge = None
+            except Exception as exc:
+                print(f"[RemoteInput] Telegram init error: {exc} — continuing with tkinter only")
+                tg_bridge = None
+
+        telegram_active = tg_bridge is not None and tg_msg_id is not None
+
+        # --- 2. Create tkinter dialog on the GUI thread ---
+        def _create_on_gui():
+            try:
+                dlg = MultilineInputDialog(
+                    root, title, prompt, default_value, done_event=tkinter_done
+                )
+                result_container["dialog"] = dlg
+
+                # Inject a Telegram status indicator into the dialog
+                if telegram_active:
+                    try:
+                        tg_label = tk.Label(
+                            dlg.main_frame,
+                            text="📡  Telegram link active — you can also reply from your phone",
+                            bg=dlg.theme_colors["bg_secondary"],
+                            fg=dlg.theme_colors["accent_color"],
+                            font=get_system_font(),
+                            anchor="w",
+                            padx=8,
+                            pady=4,
+                        )
+                        tg_label.grid(row=5, column=0, sticky="ew", pady=(4, 0))
+                        dlg._tg_label = tg_label
+                    except Exception:
+                        pass
+
+                try:
+                    dlg.dialog.lift()
+                except Exception:
+                    pass
+            except Exception as e:
+                print(f"[RemoteInput] Error creating dialog: {e}")
+                tkinter_done.set()
+
+        _dialog_request_queue.put(_create_on_gui)
+
+        # --- 3. Telegram poller thread ---
+        def _telegram_poller():
+            if not tg_bridge or not tg_msg_id:
+                return
+            reply = tg_bridge.poll_for_reply(tg_msg_id, tg_cancel)
+            if reply is not None and not master_done.is_set():
+                result_container["text"] = reply
+                result_container["source"] = "telegram"
+                master_done.set()
+
+                # Close the tkinter dialog from the GUI thread
+                def _close_tkinter():
+                    dlg = result_container.get("dialog")
+                    if dlg is None:
+                        return
+                    try:
+                        # Cancel the periodic reminder
+                        if hasattr(dlg, '_reminder_id') and dlg._reminder_id is not None:
+                            dlg.dialog.after_cancel(dlg._reminder_id)
+                    except Exception:
+                        pass
+                    try:
+                        # Update Telegram indicator to show remote answer
+                        if hasattr(dlg, '_tg_label'):
+                            dlg._tg_label.configure(
+                                text="✅  Answered via Telegram — closing…",
+                                fg=dlg.theme_colors.get("success_color", "#137333"),
+                            )
+                        dlg.result = reply
+                        # Brief delay so user sees the status change, then close
+                        dlg.dialog.after(1200, dlg.dialog.destroy)
+                    except Exception:
+                        try:
+                            dlg.dialog.destroy()
+                        except Exception:
+                            pass
+                    # Signal the tkinter done event to unblock the monitor
+                    if dlg._done_event:
+                        dlg._done_event.set()
+
+                _dialog_request_queue.put(_close_tkinter)
+
+        tg_thread = threading.Thread(
+            target=_telegram_poller, daemon=True, name="tg-remote-input-poller"
+        )
+        tg_thread.start()
+
+        # --- 4. Monitor thread for tkinter completion ---
+        def _tkinter_monitor():
+            tkinter_done.wait()
+            dlg = result_container.get("dialog")
+            if dlg and not master_done.is_set():
+                result_container["text"] = dlg.result
+                result_container["source"] = "tkinter"
+                master_done.set()
+                tg_cancel.set()   # stop telegram poller
+
+        tk_monitor = threading.Thread(
+            target=_tkinter_monitor, daemon=True, name="tkinter-done-monitor"
+        )
+        tk_monitor.start()
+
+        # --- 5. Wait for either channel to deliver a result ---
+        timeout = _get_tool_timeout()
+        master_done.wait(timeout=timeout)
+
+        # --- 6. Cleanup: update the Telegram message with final status ---
+        if tg_cancel is not None:
+            tg_cancel.set()  # ensure poller stops
+
+        if tg_bridge and tg_msg_id:
+            source = result_container.get("source")
+            text   = result_container.get("text")
+            try:
+                if source == "telegram":
+                    # Truncate for Telegram's message length limit
+                    display_text = (text or "")[:3000]
+                    tg_bridge.edit_message(
+                        tg_msg_id,
+                        f"✅ Responded via Telegram:\n\n{display_text}"
+                    )
+                elif source == "tkinter" and text is not None:
+                    tg_bridge.edit_message(
+                        tg_msg_id,
+                        "✅ Answered via local dialog. (This prompt is no longer active)"
+                    )
+                elif source == "tkinter" and text is None:
+                    tg_bridge.edit_message(
+                        tg_msg_id,
+                        "❌ Cancelled locally. (This prompt is no longer active)"
+                    )
+                else:
+                    tg_bridge.edit_message(
+                        tg_msg_id,
+                        "⏰ Timed out. (This prompt is no longer active)"
+                    )
+            except Exception:
+                pass
+
+        return result_container.get("text")
+
+    except Exception as e:
+        print(f"[RemoteInput] Error: {e}")
+        return None
+
+
+@mcp.tool()
+async def get_remote_input(
+    title: Annotated[str, Field(description="Title of the input dialog window")],
+    prompt: Annotated[str, Field(description="The prompt/question to show to the user")],
+    default_value: Annotated[str, Field(description="Default text to pre-fill in the text area")] = "",
+    ctx: Context = None
+) -> Dict[str, Any]:
+    """
+    Create a multi-line text input dialog **with Telegram remote answering**.
+
+    Opens the same tkinter dialog as ``get_multiline_input`` and simultaneously
+    sends the prompt to a configured Telegram chat.  The user can respond from
+    **either** the local tkinter window or from Telegram on their phone:
+
+    * Answering from **tkinter** closes the Telegram prompt.
+    * Answering from **Telegram** closes the tkinter window.
+
+    If Telegram is not configured (missing ``telegram_config.json``), this tool
+    behaves identically to ``get_multiline_input`` — tkinter only.
+    """
+    try:
+        if ctx:
+            tg_status = "active" if is_telegram_configured() else "not configured (tkinter only)"
+            await ctx.info(
+                f"Requesting remote input: {prompt[:80]}… | Telegram: {tg_status}"
+            )
+
+        # Ensure GUI is initialised
+        if not ensure_gui_initialized():
+            return {
+                "success": False,
+                "error": "GUI system not available",
+                "cancelled": False,
+                "platform": CURRENT_PLATFORM
+            }
+
+        # Run the blocking orchestration function in a thread pool
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, create_remote_input_dialog, title, prompt, default_value
+        )
+
+        if result is not None:
+            if ctx:
+                await ctx.info(f"User provided remote input ({len(result)} characters)")
+            return {
+                "success": True,
+                "user_input": result,
+                "character_count": len(result),
+                "line_count": len(result.split('\n')),
+                "cancelled": False,
+                "platform": CURRENT_PLATFORM
+            }
+        else:
+            if ctx:
+                await ctx.warning("User cancelled the remote input dialog")
+            return {
+                "success": False,
+                "user_input": None,
+                "cancelled": True,
+                "platform": CURRENT_PLATFORM
+            }
+
+    except Exception as e:
+        if ctx:
+            await ctx.error(f"Error creating remote input dialog: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "cancelled": False,
+            "platform": CURRENT_PLATFORM
+        }
+
+
 @mcp.tool()
 async def show_confirmation_dialog(
     title: Annotated[str, Field(description="Title of the confirmation dialog")],
@@ -1814,6 +2092,7 @@ You have access to Human-in-the-Loop tools that allow you to interact directly w
 - `get_user_input` - Single-line text/number input (names, values, paths, etc.)
 - `get_user_choice` - Multiple choice selection (pick from options)
 - `get_multiline_input` - Long-form text (descriptions, code, documents)
+- `get_remote_input` - Long-form text with Telegram remote answering (same as get_multiline_input, plus the user can reply from Telegram)
 - `show_confirmation_dialog` - Yes/No decisions (confirmations, approvals)
 - `show_info_message` - Status updates and notifications
 
@@ -1930,6 +2209,7 @@ async def health_check() -> Dict[str, Any]:
                 "get_user_input",
                 "get_user_choice", 
                 "get_multiline_input",
+                "get_remote_input",
                 "show_confirmation_dialog",
                 "show_info_message",
                 "get_human_loop_prompt"
@@ -1954,6 +2234,7 @@ def main():
     print("get_user_input - Get text/number input from user")
     print("get_user_choice - Let user choose from options")
     print("get_multiline_input - Get multi-line text from user")
+    print("get_remote_input - Get multi-line text with Telegram remote answering")
     print("show_confirmation_dialog - Ask user for yes/no confirmation")
     print("show_info_message - Display information to user")
     print("get_human_loop_prompt - Get guidance on when to use human-in-the-loop tools")
