@@ -2581,15 +2581,10 @@ def main():
     elif IS_LINUX:
         print("Linux detected - Using Linux-compatible GUI settings with modern styling")
     
-    # Test GUI availability
-    if ensure_gui_initialized():
-        print(" GUI system initialized successfully")
-        if IS_MACOS:
-            print(" macOS GUI optimizations applied")
-    else:
-        print(" Warning: GUI system may not be available")
+    # GUI initialization is deferred to the first tool invocation that needs it.
+    # Each tool function already calls ensure_gui_initialized() before use,
+    # so we skip it here to avoid blocking the MCP handshake on startup.
     
-    print("")
     print("Starting MCP server...")
     
     # Run the server
