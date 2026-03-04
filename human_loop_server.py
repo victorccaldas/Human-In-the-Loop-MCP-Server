@@ -1717,7 +1717,7 @@ async def get_multiline_input(
 # Remote Input — Entangled tkinter + Telegram channels
 # ---------------------------------------------------------------------------
 
-def create_remote_input_dialog(title: str, prompt: str, default_value: str = ""):
+def create_remote_input_dialog(title: str, prompt: str, default_value: str = "", next_action: str = ""):
     """Create a multiline input dialog + Telegram prompt.
 
     Opens the same tkinter MultilineInputDialog as ``get_multiline_input``, but
@@ -1928,11 +1928,17 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
                 status_label = "Timed out"
                 status_footer = f"\u23f0 {status_label}"
 
+            next_action_section = (
+                f"\n\n\u26a1 <b>Following up now:</b> {_esc(next_action.strip())}"
+                if next_action and next_action.strip() else ""
+            )
+
             edited_text = (
                 f"\U0001f5a5\ufe0f <b>{_esc(title)}</b>\n\n"
                 f"Original message:\n"
                 f"<blockquote expandable>{_esc(original_prompt_truncated)}</blockquote>\n\n"
                 f"{status_footer}"
+                f"{next_action_section}"
             )
 
             _diag(f"Editing Telegram message (msg_id={tg_msg_id}, status={status_label})")
@@ -1969,6 +1975,7 @@ async def get_remote_input(
     title: Annotated[str, Field(description="Title of the input dialog window")],
     prompt: Annotated[str, Field(description="The prompt/question to show to the user")],
     default_value: Annotated[str, Field(description="Default text to pre-fill in the text area")] = "",
+    next_action: Annotated[str, Field(description="Short note (1-10 words) describing what the AI will do after the user responds. Shown in the Telegram edited message as a 'Following up now' line. Optional.")] = "",
     ctx: Context = None
 ) -> Dict[str, Any]:
     """
@@ -2003,7 +2010,7 @@ async def get_remote_input(
         # Run the blocking orchestration function in a thread pool
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
-            None, create_remote_input_dialog, title, prompt, default_value
+            None, create_remote_input_dialog, title, prompt, default_value, next_action
         )
 
         if result is not None:
