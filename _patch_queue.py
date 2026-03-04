@@ -1,7 +1,8 @@
 """
 Fix concurrent dialogs: replace after(0, fn) with thread-safe queue + polling.
 """
-path = r'C:\Users\Victor\Desktop\Projetos\Human-In-the-Loop-MCP-Server\human_loop_server.py'
+import os
+path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'human_loop_server.py')
 with open(path, 'r', encoding='utf-8') as f:
     src = f.read()
 

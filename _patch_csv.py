@@ -1,7 +1,7 @@
 """Patch human_loop_server.py for CSV-based custom_prompts with active flag."""
-import re, sys
+import re, sys, os
 
-path = r'C:\Users\Victor\Desktop\Projetos\Human-In-the-Loop-MCP-Server\human_loop_server.py'
+path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'human_loop_server.py')
 with open(path, 'r', encoding='utf-8') as f:
     src = f.read()
 

@@ -104,6 +104,17 @@ class MiniAppHTTPServer:
             """Request handler — one instance per request."""
 
             def do_GET(self):
+                try:
+                    self._do_GET_impl()
+                except Exception as exc:
+                    print(f"[MiniAppServer] Unhandled error in GET {self.path}: "
+                          f"{type(exc).__name__}: {exc}")
+                    try:
+                        self._respond(500, "text/plain", b"Internal server error")
+                    except Exception:
+                        pass
+
+            def _do_GET_impl(self):
                 parsed = urlparse(self.path)
                 if parsed.path != "/":
                     self._respond(404, "text/plain", b"Not found")
@@ -141,6 +152,17 @@ class MiniAppHTTPServer:
                 self._respond(200, "text/html; charset=utf-8", body)
 
             def do_POST(self):
+                try:
+                    self._do_POST_impl()
+                except Exception as exc:
+                    print(f"[MiniAppServer] Unhandled error in POST {self.path}: "
+                          f"{type(exc).__name__}: {exc}")
+                    try:
+                        self._respond(500, "text/plain", b"Internal server error")
+                    except Exception:
+                        pass
+
+            def _do_POST_impl(self):
                 parsed = urlparse(self.path)
                 if parsed.path != "/submit":
                     self._respond(404, "text/plain", b"Not found")
@@ -226,7 +248,8 @@ class MiniAppHTTPServer:
         if self._httpd is not None:
             try:
                 self._httpd.shutdown()
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[MiniAppServer] Warning: HTTP server shutdown error "
+                      f"(port {self._port}): {exc}")
         if self._thread is not None:
             self._thread.join(timeout=3.0)

@@ -190,5 +190,8 @@ class CloudflareTunnel:
             except subprocess.TimeoutExpired:
                 self._proc.kill()
                 self._proc.wait(timeout=2.0)
-        except OSError:
-            pass
+        except OSError as exc:
+            # ESRCH / errno 3 = "No such process" — process already exited; ignore.
+            import errno
+            if exc.errno not in (errno.ESRCH, None):
+                print(f"[CloudflareTunnel] Non-fatal error terminating cloudflared process: {exc}")

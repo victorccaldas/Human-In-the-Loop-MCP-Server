@@ -38,9 +38,16 @@ try:
     from _miniapp_server import MiniAppHTTPServer
     from _tunnel_manager import CloudflareTunnel, TunnelNotAvailableError
     _MINIAPP_AVAILABLE = True
-except Exception:
+except Exception as _miniapp_exc:
     # Catch any import / syntax / runtime error so the MCP server
     # always starts cleanly even if the Mini App modules are broken.
+    import sys as _sys
+    print(
+        f"[Startup] Mini App components unavailable — "
+        f"{type(_miniapp_exc).__name__}: {_miniapp_exc}. "
+        "The get_remote_input Mini App/tunnel feature will be disabled.",
+        file=_sys.stderr,
+    )
     _MINIAPP_AVAILABLE = False
     MiniAppHTTPServer = None  # type: ignore[misc, assignment]
     CloudflareTunnel = None   # type: ignore[misc, assignment]
@@ -78,8 +85,9 @@ def _get_multiline_input_custom_prompts() -> list:
                         prompts.append((active, active_color, text))
             if prompts:
                 return prompts
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[CustomPrompts] Failed to read custom_prompts.csv: {exc} "
+              "— falling back to CLI args.")
 
     # Fallback: CLI args (all pre-checked)
     prompts = []
@@ -91,8 +99,8 @@ def _get_multiline_input_custom_prompts() -> list:
             elif a in ("--multiline_input_custom_prompts", "multiline_input_custom_prompts"):
                 if i + 1 < len(argv):
                     prompts.append((True, "0", argv[i + 1]))
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[CustomPrompts] Failed to parse CLI args for custom prompts: {exc}")
     return prompts
 
 
@@ -127,8 +135,8 @@ def _get_tool_timeout() -> Optional[float]:
                 if i + 1 < len(argv):
                     value = float(argv[i + 1])
                     return value if value > 0 else None
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[Config] Invalid --tool-timeout value: {exc} — using default 300 s.")
 
     return 300.0  # default: 5 minutes
 
@@ -151,8 +159,9 @@ def _get_persisted_dialog_height() -> int:
         if os.path.isfile(_CONFIG_FILE):
             data = json.loads(open(_CONFIG_FILE, encoding="utf-8").read())
             return int(data.get("dialog_height", default))
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[Config] Could not read dialog_config.json: {exc} "
+              f"— using default height {default}.")
     return default
 
 def _save_persisted_dialog_height(height: int):
@@ -162,13 +171,15 @@ def _save_persisted_dialog_height(height: int):
         if os.path.isfile(_CONFIG_FILE):
             try:
                 data = json.loads(open(_CONFIG_FILE, encoding="utf-8").read())
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[Config] dialog_config.json is corrupt ({exc}); "
+                      "existing content will be overwritten.")
+                data = {}
         data["dialog_height"] = height
         with open(_CONFIG_FILE, "w", encoding="utf-8") as _f:
             json.dump(data, _f, indent=2)
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[Config] Failed to save dialog height to dialog_config.json: {exc}")
 
 
 def get_system_font():
@@ -436,7 +447,8 @@ def _ensure_persistent_root():
                     try:
                         fn()
                     except Exception as exc:
-                        print(f"Error in dialog request: {exc}")
+                        print(f"[GUIThread] Unhandled exception executing queued dialog "
+                              f"callable {fn!r}: {type(exc).__name__}: {exc}")
             except Exception:
                 pass  # queue.Empty — nothing to do
             if _persistent_root and _persistent_root.winfo_exists():
@@ -485,7 +497,8 @@ def create_input_dialog(title: str, prompt: str, default_value: str = "", input_
         root.destroy()
         return result
     except Exception as e:
-        print(f"Error in input dialog: {e}")
+        print(f"[Dialog] create_input_dialog(title={title!r}) failed: "
+              f"{type(e).__name__}: {e}")
         return None
 
 def show_confirmation(title: str, message: str):
@@ -941,7 +954,8 @@ def create_multiline_input_dialog(title: str, prompt: str, default_value: str = 
                 except Exception:
                     pass
             except Exception as e:
-                print(f"Error creating dialog on GUI thread: {e}")
+                print(f"[GUIThread] Failed to create MultilineInputDialog "
+                      f"(title={title!r}): {type(e).__name__}: {e}")
                 done.set()  # unblock caller even on error
 
         # Post to the GUI thread via the thread-safe queue.
@@ -954,7 +968,8 @@ def create_multiline_input_dialog(title: str, prompt: str, default_value: str = 
             return dialog_holder[0].result
         return None
     except Exception as e:
-        print(f"Error in multiline dialog: {e}")
+        print(f"[Dialog] create_multiline_input_dialog(title={title!r}) "
+              f"failed: {type(e).__name__}: {e}")
         return None
 
 def show_confirmation(title: str, message: str):
@@ -967,7 +982,8 @@ def show_confirmation(title: str, message: str):
         root.destroy()
         return result
     except Exception as e:
-        print(f"Error in confirmation dialog: {e}")
+        print(f"[Dialog] show_confirmation(title={title!r}) failed: "
+              f"{type(e).__name__}: {e}")
         return False
 
 def show_info(title: str, message: str):
@@ -980,7 +996,8 @@ def show_info(title: str, message: str):
         root.destroy()
         return True
     except Exception as e:
-        print(f"Error in info dialog: {e}")
+        print(f"[Dialog] show_info(title={title!r}) failed: "
+              f"{type(e).__name__}: {e}")
         return False
 
 class ChoiceDialog:
@@ -1425,8 +1442,8 @@ class MultilineInputDialog:
                     self.dialog.lift()
                 # Schedule the next reminder
                 self._reminder_id = self.dialog.after(60000, self._reminder)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[Dialog] Reminder loop error: {type(exc).__name__}: {exc}")
 
     def _on_prompt_selection_change(self):
         """Apply active_color only to selected checkbox rows and text object.
@@ -1434,7 +1451,7 @@ class MultilineInputDialog:
         - active_color=0 is ignored.
         - The dialog/window and text input backgrounds are not changed.
         """
-        try:
+        try:  # noqa: SIM105
             default_row_bg = "light gray"
             try:
                 self.dialog.winfo_rgb(default_row_bg)
@@ -1468,8 +1485,9 @@ class MultilineInputDialog:
                     selectcolor=self._base_bg_primary,
                 )
                 row_text.configure(bg=target_row_bg)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[Dialog] _on_prompt_selection_change error: "
+                  f"{type(exc).__name__}: {exc}")
 
     def _copy_selected_prompt_text(self, event=None):
         """Copy selected text from a prompt row text widget using Ctrl+C."""
@@ -1553,7 +1571,11 @@ async def get_user_input(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available (1)",
+                "error": (
+                    f"get_user_input: GUI subsystem unavailable on platform "
+                    f"'{CURRENT_PLATFORM}'. Ensure a display server is running "
+                    "or use get_remote_input with Telegram configured."
+                ),
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -1618,7 +1640,11 @@ async def get_user_choice(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available (2)",
+                "error": (
+                    f"get_user_choice: GUI subsystem unavailable on platform "
+                    f"'{CURRENT_PLATFORM}'. Ensure a display server is running "
+                    "or use get_remote_input with Telegram configured."
+                ),
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -1683,7 +1709,11 @@ async def get_multiline_input(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available (3)",
+                "error": (
+                    f"get_multiline_input: GUI subsystem unavailable on platform "
+                    f"'{CURRENT_PLATFORM}'. Ensure a display server is running "
+                    "or use get_remote_input with Telegram configured."
+                ),
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -2029,11 +2059,13 @@ def create_remote_input_dialog(
                         dlg.result = reply
                         # Brief delay so user sees the status change, then close
                         dlg.dialog.after(1200, dlg.dialog.destroy)
-                    except Exception:
+                    except Exception as _exc:
+                        print(f"[RemoteInput] Error updating dialog after Telegram reply: "
+                              f"{type(_exc).__name__}: {_exc}")
                         try:
                             dlg.dialog.destroy()
-                        except Exception:
-                            pass
+                        except Exception as _exc2:
+                            print(f"[RemoteInput] Could not destroy dialog: {_exc2}")
                     # Signal the tkinter done event to unblock the monitor
                     if dlg._done_event:
                         dlg._done_event.set()
@@ -2163,7 +2195,10 @@ def create_remote_input_dialog(
         return result_container.get("text")
 
     except Exception as e:
-        print(f"[RemoteInput] Error: {e}")
+        import traceback as _tb
+        print(f"[RemoteInput] Unexpected error in create_remote_input_dialog "
+              f"(title={title!r}): {type(e).__name__}: {e}")
+        _tb.print_exc()
         # Best-effort cleanup of Mini App session on unexpected errors
         try:
             if "miniapp_session" in dir() and miniapp_session is not None:
@@ -2205,7 +2240,11 @@ async def get_remote_input(
         if not ensure_gui_initialized() and not is_telegram_configured():
             return {
                 "success": False,
-                "error": "GUI system not available (4)",
+                "error": (
+                    f"get_remote_input: neither GUI nor Telegram is available on platform "
+                    f"'{CURRENT_PLATFORM}'. Ensure a display server is running or "
+                    "configure Telegram (telegram_config.json)."
+                ),
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -2268,7 +2307,10 @@ async def show_confirmation_dialog(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available (5)",
+                "error": (
+                    f"show_confirmation_dialog: GUI subsystem unavailable on platform "
+                    f"'{CURRENT_PLATFORM}'. Ensure a display server is running."
+                ),
                 "confirmed": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -2319,7 +2361,10 @@ async def show_info_message(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available (6)",
+                "error": (
+                    f"show_info_message: GUI subsystem unavailable on platform "
+                    f"'{CURRENT_PLATFORM}'. Ensure a display server is running."
+                ),
                 "platform": CURRENT_PLATFORM
             }
         

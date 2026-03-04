@@ -112,7 +112,10 @@ class TelegramBridge:
                 return resp.json()["result"]["message_id"]
             else:
                 try:
-                    print(f"[TelegramBridge] send_prompt failed: {resp.status_code}")
+                    print(
+                        f"[TelegramBridge] send_prompt failed: "
+                        f"HTTP {resp.status_code} \u2014 {resp.text[:300]}"
+                    )
                 except UnicodeEncodeError:
                     pass
         except Exception as exc:
@@ -388,6 +391,7 @@ class TelegramBridge:
 
     def delete_message(self, message_id: int) -> bool:
         """Delete a message from the chat.  Returns True on success."""
+        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
         try:
             resp = requests.post(
                 self._api("deleteMessage"),
@@ -395,7 +399,15 @@ class TelegramBridge:
                 timeout=10,
             )
             return resp.status_code == 200
-        except Exception:
+        except Exception as exc:
+            try:
+                with open(diag_path, "a", encoding="utf-8") as f:
+                    f.write(
+                        f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                        f"[delete_message] msg_id={message_id}: {exc}\n"
+                    )
+            except Exception:
+                pass
             return False
 
     def react_to_message(self, message_id: int, emoji: str = "👍") -> bool:
@@ -449,8 +461,9 @@ class TelegramBridge:
                 updates = resp.json().get("result", [])
                 if updates:
                     self._update_offset = updates[-1]["update_id"] + 1
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[TelegramBridge] flush_updates failed: {exc} "
+                  "\u2014 stale updates may be reprocessed.")
 
     def poll_for_reply(
         self,
@@ -526,5 +539,12 @@ def is_telegram_configured() -> bool:
         with open(_DEFAULT_CONFIG, "r", encoding="utf-8") as f:
             data = json.load(f)
         return bool(data.get("bot_token")) and bool(data.get("chat_id"))
-    except Exception:
+    except json.JSONDecodeError as exc:
+        print(f"[TelegramBridge] telegram_config.json is not valid JSON: {exc}")
+        return False
+    except OSError as exc:
+        print(f"[TelegramBridge] Cannot read telegram_config.json: {exc}")
+        return False
+    except Exception as exc:
+        print(f"[TelegramBridge] is_telegram_configured check failed: {exc}")
         return False

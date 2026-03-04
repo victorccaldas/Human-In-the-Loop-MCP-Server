@@ -1,7 +1,7 @@
 """Patch _get_multiline_input_custom_prompts to read from custom_prompts.txt."""
 import sys, os
 
-path = r'C:\Users\Victor\Desktop\Projetos\Human-In-the-Loop-MCP-Server\human_loop_server.py'
+path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'human_loop_server.py')
 with open(path, 'r', encoding='utf-8') as f:
     src = f.read()
 
