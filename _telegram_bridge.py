@@ -65,6 +65,11 @@ class TelegramBridge:
         specials = r'_*[]()~`>#+-=|{}.!'
         return ''.join(('\\' + ch if ch in specials else ch) for ch in text)
 
+    @staticmethod
+    def _escape_html(text: str) -> str:
+        """Escape HTML special characters for parse_mode='HTML'."""
+        return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
     # ------------------------------------------------------------------
     # Sending
     # ------------------------------------------------------------------
@@ -117,12 +122,19 @@ class TelegramBridge:
                 pass
         return None
 
-    def edit_message(self, message_id: int, new_text: str, max_retries: int = 3) -> bool:
-        """Edit a previously sent message (plain text, no parse_mode).
+    def edit_message(
+        self,
+        message_id: int,
+        new_text: str,
+        max_retries: int = 3,
+        parse_mode: Optional[str] = None,
+    ) -> bool:
+        """Edit a previously sent message.
 
-        Retries up to *max_retries* times on transient failures (network errors,
-        rate-limits, non-200 responses).  Returns True if the edit succeeded,
-        False otherwise.  Diagnostic details are written to _remote_input_diag.log.
+        ``parse_mode`` may be ``None`` (plain text), ``'HTML'``, or
+        ``'MarkdownV2'``.  Retries up to *max_retries* times on transient
+        failures.  Returns True if the edit succeeded, False otherwise.
+        Diagnostic details are written to _remote_input_diag.log.
 
         Only works on messages sent WITHOUT reply_markup or with InlineKeyboard.
         Messages sent with ForceReply cannot be edited (Telegram API limitation).
@@ -137,13 +149,16 @@ class TelegramBridge:
 
         for attempt in range(1, max_retries + 1):
             try:
+                payload: dict = {
+                    "chat_id": self.chat_id,
+                    "message_id": message_id,
+                    "text": new_text,
+                }
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
                 resp = requests.post(
                     self._api("editMessageText"),
-                    json={
-                        "chat_id": self.chat_id,
-                        "message_id": message_id,
-                        "text": new_text,
-                    },
+                    json=payload,
                     timeout=10,
                 )
                 if resp.status_code == 200:
@@ -206,6 +221,41 @@ class TelegramBridge:
         except Exception:
             return False
 
+    def react_to_message(self, message_id: int, emoji: str = "👍") -> bool:
+        """React to a message in chat using Telegram `setMessageReaction`.
+
+        Returns True when the reaction is accepted by Telegram, False otherwise.
+        This is best-effort and should not interrupt the main input flow.
+        Failures are written to _remote_input_diag.log for diagnostics.
+        """
+        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
+        def _log(msg):
+            try:
+                with open(diag_path, "a", encoding="utf-8") as f:
+                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [react_to_message] {msg}\n")
+            except Exception:
+                pass
+
+        try:
+            resp = requests.post(
+                self._api("setMessageReaction"),
+                json={
+                    "chat_id": self.chat_id,
+                    "message_id": message_id,
+                    "reaction": [{"type": "emoji", "emoji": emoji}],
+                    "is_big": False,
+                },
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                _log(f"Reaction '{emoji}' set on msg {message_id}: SUCCESS")
+                return True
+            _log(f"Reaction '{emoji}' on msg {message_id}: FAILED HTTP {resp.status_code} - {resp.text}")
+            return False
+        except Exception as exc:
+            _log(f"Reaction '{emoji}' on msg {message_id}: EXCEPTION - {exc}")
+            return False
+
     # ------------------------------------------------------------------
     # Polling
     # ------------------------------------------------------------------
@@ -265,6 +315,14 @@ class TelegramBridge:
                     # Must be a reply to our prompt message
                     reply_to = msg.get("reply_to_message")
                     if reply_to and reply_to.get("message_id") == prompt_message_id:
+                        # Best-effort visual ack on the user's response message.
+                        # ✅ is REACTION_INVALID per the Telegram Bot API; 👍 is used instead.
+                        try:
+                            reply_message_id = msg.get("message_id")
+                            if isinstance(reply_message_id, int):
+                                self.react_to_message(reply_message_id, "👍")
+                        except Exception:
+                            pass
                         return msg.get("text", "")
 
             except Exception as exc:

@@ -344,11 +344,12 @@ The `get_remote_input` tool optionally supports answering prompts from Telegram.
 ### How It Works
 
 1. When `get_remote_input` is called, the prompt is sent to both the local tkinter dialog **and** your Telegram chat.
-2. The Telegram message uses `ForceReply` markup — simply reply to it to respond.
+2. Simply reply to the Telegram prompt message to respond.
 3. The first channel to receive a response wins:
    - **Reply on Telegram** → the local dialog closes automatically.
    - **Reply on tkinter** → the Telegram message is edited to show it's no longer active.
-4. The Telegram message is updated with the final status (✅ answered, ❌ cancelled, ⏰ timed out).
+4. When a Telegram reply is received, the server reacts to that reply message with a ✅ for immediate visual acknowledgement.
+5. The Telegram prompt message is updated with the final status (✅ answered, ❌ cancelled, ⏰ timed out).
 
 ### Notes
 

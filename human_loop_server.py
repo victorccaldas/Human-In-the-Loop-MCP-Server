@@ -1811,7 +1811,7 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
                         # Update Telegram indicator to show remote answer
                         if hasattr(dlg, '_tg_label'):
                             dlg._tg_label.configure(
-                                text="✅  Answered via Telegram — closing…",
+                                text="✅  User answered via Telegram — closing…",
                                 fg=dlg.theme_colors.get("success_color", "#137333"),
                             )
                         dlg.result = reply
@@ -1883,21 +1883,28 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
             if source == "telegram":
                 time.sleep(0.5)
 
-            # Truncate the original prompt for the edited message (keep it visible)
+            # Truncate the original prompt and escape for HTML
+            _esc = tg_bridge._escape_html
             original_prompt_truncated = prompt[:3000]
             if len(prompt) > 3000:
                 original_prompt_truncated += "\n...(truncated)"
 
-            # Build the edited message: original prompt text + status footer.
-            # This preserves the original content while adding the resolution.
+            # Build the edited message using HTML with expandable blockquotes so
+            # both the original prompt and the user reply are collapsible.
             if source == "telegram":
                 display_text = (text or "")[:2000]
-                status_label = "Responded via Telegram"
-                status_footer = f"\u2705 {status_label}:\n\n{display_text}"
+                status_label = "Response via Telegram"
+                status_footer = (
+                    f"{status_label}:\n"
+                    f"<blockquote expandable>{_esc(display_text)}</blockquote>"
+                )
             elif source == "tkinter" and text is not None:
                 display_text = (text or "")[:2000]
-                status_label = "Answered via local dialog"
-                status_footer = f"\u2705 {status_label}:\n\n{display_text}"
+                status_label = "User answered via local dialog"
+                status_footer = (
+                    f"\u2705 {status_label}:\n"
+                    f"<blockquote expandable>{_esc(display_text)}</blockquote>"
+                )
             elif source == "tkinter" and text is None:
                 status_label = "Cancelled locally"
                 status_footer = f"\u274c {status_label}"
@@ -1906,9 +1913,9 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
                 status_footer = f"\u23f0 {status_label}"
 
             edited_text = (
-                f"\U0001f5a5\ufe0f {title}\n\n"
-                f"{original_prompt_truncated}\n\n"
-                f"---\n"
+                f"\U0001f5a5\ufe0f <b>{_esc(title)}</b>\n\n"
+                f"Original message:\n"
+                f"<blockquote expandable>{_esc(original_prompt_truncated)}</blockquote>\n\n"
                 f"{status_footer}"
             )
 
@@ -1917,7 +1924,7 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
             # Edit the prompt message (sent without reply_markup, so editable)
             ok = False
             try:
-                ok = tg_bridge.edit_message(tg_msg_id, edited_text)
+                ok = tg_bridge.edit_message(tg_msg_id, edited_text, parse_mode="HTML")
                 _diag(f"edit_message returned: {ok}")
             except Exception as exc:
                 _diag(f"edit_message exception: {exc}")
