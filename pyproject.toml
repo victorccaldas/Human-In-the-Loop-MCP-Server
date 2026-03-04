@@ -46,6 +46,7 @@ classifiers = [
 dependencies = [
     "fastmcp>=2.8.1",
     "pydantic>=2.0.0",
+    "requests>=2.28.0",
 ]
 
 [project.optional-dependencies]
