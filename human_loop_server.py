@@ -1735,7 +1735,23 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
     try:
         root = _ensure_persistent_root()
         if root is None:
-            return None
+            # No display — try Telegram-only mode if configured
+            if not is_telegram_configured() or TelegramBridge is None:
+                return None
+            try:
+                _tg = TelegramBridge()
+                _msg_id = _tg.send_prompt(title, prompt)
+                if not _msg_id:
+                    return None
+                import threading as _threading
+                _cancel = _threading.Event()
+                _reply = _tg.poll_for_reply(_msg_id, cancel_event=_cancel)
+                if _reply is not None:
+                    _tg.edit_message(_msg_id, "\u2705 Response received.")
+                return _reply
+            except Exception as _exc:
+                print(f"[RemoteInput] Telegram-only mode error: {_exc}")
+                return None
 
         # --- Shared synchronisation primitives ---
         master_done = threading.Event()   # fires when EITHER channel answers
