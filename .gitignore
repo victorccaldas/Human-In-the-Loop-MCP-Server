@@ -3,3 +3,4 @@ dist
 build
 /__pycache__
 telegram_config.json
+_remote_input_diag.log
