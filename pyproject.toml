@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hitl-mcp-server"
-version = "0.1.3"
+version = "0.3.0"
 description = "Human-In-the-Loop MCP Server - Enable AI assistants to interact with humans through GUI dialogs"
 readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "GongRzhe", email = "gongrzhe@gmail.com"},
+    {name = "victorccaldas", email = "https://github.com/victorccaldas/"},
 ]
 keywords = [
     "mcp", 
