@@ -1,5 +1,5 @@
 active,active_color,prompt
-1,0,Make the necessary revisions and request for my validation via #get_remote_input tool so that I can provide the necessary feedback.
+0,0,Make the necessary revisions and request for my validation via #get_remote_input tool so that I can provide the necessary feedback.
 0,light-coral,No further assistance needed. Conclude the session by providing a detailed summary in your final response.
 0,0,Now you're working as the Team Orchestrator and delegating tasks to your team of subagents. They can also run parallelly if you need. Your team has multiple subagent personalities – they are available in .github/agents/team-registry.json for you to choose. Use them wisely to accomplish the task efficiently.
 0,0,If you need further clarifications use the #get_remote_input tool to ask anything.
