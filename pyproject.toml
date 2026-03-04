@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
-    {name = "victorccaldas", email = "https://github.com/victorccaldas/"},
+    {name = "victorccaldas", email = "victor_costa_caldas@hotmail.com"},
 ]
 keywords = [
     "mcp", 
