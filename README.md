@@ -356,6 +356,31 @@ The `get_remote_input` tool optionally supports answering prompts from Telegram.
 - If `telegram_config.json` is missing or invalid, `get_remote_input` falls back to a plain tkinter dialog (no errors).
 - The `requests` Python library is required for Telegram support (`pip install requests`).
 - Each Telegram bot token supports only **one** `getUpdates` consumer at a time. If you use the same bot elsewhere with long-polling, consider using a dedicated bot for the MCP server.
+- When a Telegram reply is received, the bot reacts with a 👍 for immediate visual acknowledgement, and the prompt message is updated with a collapsible status (original prompt + response).
+
+### Telegram Mini App (Interactive Web UI)
+
+When **[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)** is installed, `get_remote_input` upgrades the Telegram flow to a full interactive web UI:
+
+- A Cloudflare Quick Tunnel is spun up automatically (no account required).
+- The Telegram message includes an **Open** button that launches a Mini App inside Telegram.
+- The Mini App mirrors the tkinter dialog: it shows the prompt, a text area, and one-tap buttons for each configured custom prompt.
+- Submitting via the Mini App closes both the local dialog and the Telegram session.
+
+**Install cloudflared (one-time):**
+
+```bash
+# Windows (via winget)
+winget install cloudflare.cloudflared
+
+# macOS (via Homebrew)
+brew install cloudflared
+
+# Linux
+# Download from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+```
+
+> If cloudflared is not installed, `get_remote_input` falls back gracefully to the standard plain-text Telegram reply.
 
 ## �🔍 Troubleshooting
 

@@ -122,6 +122,183 @@ class TelegramBridge:
                 pass
         return None
 
+    def send_prompt_with_miniapp(
+        self,
+        title: str,
+        prompt: str,
+        webapp_url: str,
+        name_or_role: str = "",
+    ) -> Optional[int]:
+        """Send the prompt with an InlineKeyboard button that opens the Mini App.
+
+        The button carries ``web_app={"url": webapp_url}`` so Telegram opens
+        the page inside its native WebView.  Messages with InlineKeyboard can
+        still be edited via ``editMessageText``, so the existing post-answer
+        edit flow remains intact.
+
+        Returns the sent ``message_id``, or ``None`` on failure.
+        """
+        max_prompt_len = 3800
+        truncated = prompt[:max_prompt_len]
+        if len(prompt) > max_prompt_len:
+            truncated += "\n\\.\\.\\.(truncated)"
+
+        role_line = (
+            f"\U0001f916 _{self._escape_md(name_or_role)}_\n"
+            if name_or_role else ""
+        )
+        text = (
+            f"{role_line}"
+            f"\U0001f5a5\ufe0f *{self._escape_md(title)}*\n\n"
+            f"{self._escape_md(truncated)}\n\n"
+            f"\u23f3 _Waiting for response\\.\\.\\._\n"
+            f"_Tap the button below to open the response dialog\\._"
+        )
+        try:
+            resp = requests.post(
+                self._api("sendMessage"),
+                json={
+                    "chat_id": self.chat_id,
+                    "text": text,
+                    "parse_mode": "MarkdownV2",
+                    "reply_markup": {
+                        "inline_keyboard": [
+                            [
+                                {
+                                    "text": "\U0001f4f2  Open Response Dialog",
+                                    "web_app": {"url": webapp_url},
+                                }
+                            ]
+                        ]
+                    },
+                },
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return resp.json()["result"]["message_id"]
+            else:
+                try:
+                    print(
+                        f"[TelegramBridge] send_prompt_with_miniapp failed: "
+                        f"{resp.status_code} {resp.text[:200]}"
+                    )
+                except UnicodeEncodeError:
+                    pass
+        except Exception as exc:
+            try:
+                print(f"[TelegramBridge] send_prompt_with_miniapp error: {exc}")
+            except UnicodeEncodeError:
+                pass
+        return None
+
+    def poll_for_answer(
+        self,
+        prompt_message_id: int,
+        cancel_event: threading.Event,
+        answer_queue=None,
+        poll_interval: float = 1.5,
+    ) -> Optional[str]:
+        """Block until an answer arrives from any channel, or *cancel_event* is set.
+
+        Checks three sources in priority order on each loop iteration:
+
+        1. *answer_queue* — a ``queue.SimpleQueue`` populated by the Mini App
+           HTTP server when the user submits via the web form (fastest path).
+        2. ``web_app_data`` Telegram update — sent by ``Telegram.WebApp.sendData()``
+           inside the Mini App as a belt-and-suspenders path.
+        3. Plain-text reply to *prompt_message_id* — backwards-compatible with the
+           existing Telegram reply workflow (no Mini App required).
+
+        Parameters
+        ----------
+        prompt_message_id:
+            ``message_id`` of the original prompt sent to the chat.
+        cancel_event:
+            ``threading.Event``; when set the method returns ``None``.
+        answer_queue:
+            Optional ``queue.SimpleQueue`` shared with ``MiniAppHTTPServer``.
+            Pass ``None`` when the Mini App is not in use.
+        poll_interval:
+            Seconds to sleep between ``getUpdates`` requests on error.
+
+        Returns
+        -------
+        str or None
+            The answer text, or ``None`` if cancelled.
+        """
+        import queue as _queue_mod
+
+        self.flush_updates()
+
+        while not cancel_event.is_set():
+            # ── 1. Check local HTTP-server queue (Mini App POST /submit) ──
+            if answer_queue is not None:
+                try:
+                    return answer_queue.get_nowait()
+                except _queue_mod.Empty:
+                    pass
+
+            # ── 2 & 3. Poll Telegram getUpdates ──────────────────────────
+            try:
+                params: dict = {
+                    "timeout": 3,
+                    "allowed_updates": ["message"],
+                }
+                if self._update_offset is not None:
+                    params["offset"] = self._update_offset
+
+                resp = requests.get(
+                    self._api("getUpdates"), params=params, timeout=8
+                )
+                if resp.status_code != 200:
+                    time.sleep(poll_interval)
+                    continue
+
+                for update in resp.json().get("result", []):
+                    self._update_offset = update["update_id"] + 1
+                    msg = update.get("message")
+                    if not msg:
+                        continue
+                    if str(msg.get("chat", {}).get("id")) != self.chat_id:
+                        continue
+
+                    # ── Path 2 (reserved): web_app_data from sendData() ──
+                    # Note: sendData() only fires for ReplyKeyboard-opened Mini
+                    # Apps.  Our InlineKeyboard Mini App uses POST /submit
+                    # (Path 1) instead.  This branch is kept for forward
+                    # compatibility if the open mode is ever changed.
+                    web_app_data = msg.get("web_app_data")
+                    if web_app_data:
+                        answer = web_app_data.get("data", "")
+                        try:
+                            reply_id = msg.get("message_id")
+                            if isinstance(reply_id, int):
+                                self.react_to_message(reply_id, "\U0001f44d")
+                        except Exception:
+                            pass
+                        return answer
+
+                    # ── Path 3: plain-text reply to the prompt message ────
+                    reply_to = msg.get("reply_to_message")
+                    if reply_to and reply_to.get("message_id") == prompt_message_id:
+                        try:
+                            reply_id = msg.get("message_id")
+                            if isinstance(reply_id, int):
+                                self.react_to_message(reply_id, "\U0001f44d")
+                        except Exception:
+                            pass
+                        return msg.get("text", "")
+
+            except Exception as exc:
+                if "timeout" not in str(exc).lower():
+                    try:
+                        print(f"[TelegramBridge] poll_for_answer error: {exc}")
+                    except UnicodeEncodeError:
+                        pass
+                time.sleep(poll_interval)
+
+        return None
+
     def edit_message(
         self,
         message_id: int,

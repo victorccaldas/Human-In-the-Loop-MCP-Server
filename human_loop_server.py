@@ -32,6 +32,20 @@ except ImportError:
     def is_telegram_configured() -> bool:  # type: ignore[misc]
         return False
 
+# Mini App components (optional — degrade gracefully if cloudflared unavailable)
+try:
+    import secrets as _secrets
+    from _miniapp_server import MiniAppHTTPServer
+    from _tunnel_manager import CloudflareTunnel, TunnelNotAvailableError
+    _MINIAPP_AVAILABLE = True
+except Exception:
+    # Catch any import / syntax / runtime error so the MCP server
+    # always starts cleanly even if the Mini App modules are broken.
+    _MINIAPP_AVAILABLE = False
+    MiniAppHTTPServer = None  # type: ignore[misc, assignment]
+    CloudflareTunnel = None   # type: ignore[misc, assignment]
+    class TunnelNotAvailableError(RuntimeError): pass  # type: ignore[misc]
+
 # Platform detection
 CURRENT_PLATFORM = platform.system().lower()
 IS_WINDOWS = CURRENT_PLATFORM == 'windows'
@@ -1717,7 +1731,97 @@ async def get_multiline_input(
 # Remote Input — Entangled tkinter + Telegram channels
 # ---------------------------------------------------------------------------
 
-def create_remote_input_dialog(title: str, prompt: str, default_value: str = ""):
+class MiniAppSession:
+    """Container for an active Mini App HTTP server + Cloudflare tunnel pair."""
+
+    def __init__(self, http_server, tunnel, webapp_url: str) -> None:
+        self.http_server = http_server      # MiniAppHTTPServer
+        self.tunnel = tunnel                # CloudflareTunnel
+        self.webapp_url = webapp_url        # Full https URL with token query param
+
+    def stop(self) -> None:
+        """Shut down both the HTTP server and the tunnel subprocess."""
+        try:
+            self.http_server.stop()
+        except Exception:
+            pass
+        try:
+            self.tunnel.stop()
+        except Exception:
+            pass
+
+
+def _build_miniapp_session(
+    title: str,
+    prompt: str,
+    all_prompts: list,
+    name_or_role: str = "",
+) -> Optional["MiniAppSession"]:
+    """Attempt to start a Mini App HTTP server + Cloudflare quick tunnel.
+
+    Returns a :class:`MiniAppSession` on success, or ``None`` when the Mini
+    App infrastructure is not available (cloudflared not installed, import
+    error, tunnel timeout, etc.).  Failures are printed but never raised so
+    that callers can degrade gracefully.
+    """
+    if not _MINIAPP_AVAILABLE:
+        return None
+
+    try:
+        token = _secrets.token_hex(16)
+
+        # Build prompts list: all CSV rows, active ones pre-checked
+        # all_prompts = [(active: bool, color: str, text: str), ...]
+        prompts_data = [
+            {"text": p[2], "checked": bool(p[0])}
+            for p in all_prompts
+            if (p[2] or "").strip()
+        ]
+
+        # Start local HTTP server first (instant, OS assigns port)
+        http_server = MiniAppHTTPServer(
+            title=title,
+            prompt=prompt,
+            prompts=prompts_data,
+            token=token,
+            tunnel_base_url="https://placeholder.trycloudflare.com",  # updated after tunnel starts
+            name_or_role=name_or_role,
+        )
+        port = http_server.start()
+
+        # Start Cloudflare tunnel (blocks up to 20 s)
+        tunnel = CloudflareTunnel()
+        try:
+            public_url = tunnel.start(local_port=port, timeout=20.0)
+        except TunnelNotAvailableError as exc:
+            print(f"[MiniApp] Tunnel unavailable: {exc}")
+            http_server.stop()
+            return None
+
+        # Update the server's tunnel URL now that we know the real address
+        http_server._tunnel_base_url = public_url.rstrip("/")
+
+        # Small propagation wait: Cloudflare CDN needs ~2–3 s to register the
+        # ephemeral tunnel in its DNS before external clients can resolve it.
+        # The Telegram message is sent after this pause, so by the time the
+        # user taps the inline button the URL is fully reachable.
+        time.sleep(3)
+
+        webapp_url = f"{public_url.rstrip('/')}/?t={token}"
+        print(f"[MiniApp] Mini App ready at {webapp_url}")
+        return MiniAppSession(http_server, tunnel, webapp_url)
+
+    except Exception as exc:
+        print(f"[MiniApp] Failed to build Mini App session: {exc}")
+        return None
+
+
+def create_remote_input_dialog(
+    title: str,
+    prompt: str,
+    default_value: str = "",
+    name_or_role: str = "",
+):
     """Create a multiline input dialog + Telegram prompt.
 
     Opens the same tkinter MultilineInputDialog as ``get_multiline_input``, but
@@ -1767,17 +1871,44 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
         # --- 1. Initialise Telegram bridge (optional) ---
         tg_bridge: Optional[Any] = None
         tg_msg_id: Optional[int] = None
+        miniapp_session: Optional[MiniAppSession] = None
+
         if is_telegram_configured() and TelegramBridge is not None:
             try:
                 tg_bridge = TelegramBridge()
-                tg_msg_id = tg_bridge.send_prompt(title, prompt)
-                if tg_msg_id:
-                    print(f"[RemoteInput] Telegram prompt sent (msg_id={tg_msg_id})")
-                else:
-                    print("[RemoteInput] Failed to send Telegram prompt -- continuing with tkinter only")
-                    tg_bridge = None
+
+                # --- 1a. Attempt Mini App session (Cloudflare tunnel + HTTP server) ---
+                all_prompts = _get_multiline_input_custom_prompts()
+                miniapp_session = _build_miniapp_session(title, prompt, all_prompts, name_or_role)
+
+                if miniapp_session:
+                    # Mini App path: send prompt with InlineKeyboard Open button
+                    tg_msg_id = tg_bridge.send_prompt_with_miniapp(
+                        title, prompt, miniapp_session.webapp_url, name_or_role
+                    )
+                    if tg_msg_id:
+                        print(f"[RemoteInput] Telegram Mini App prompt sent (msg_id={tg_msg_id})")
+                    else:
+                        print("[RemoteInput] send_prompt_with_miniapp failed — falling back to plain prompt")
+                        miniapp_session.stop()
+                        miniapp_session = None
+                        tg_msg_id = tg_bridge.send_prompt(title, prompt)
+
+                if not miniapp_session:
+                    # Plain prompt path (no Mini App)
+                    if tg_msg_id is None:
+                        tg_msg_id = tg_bridge.send_prompt(title, prompt)
+                    if tg_msg_id:
+                        print(f"[RemoteInput] Telegram prompt sent (msg_id={tg_msg_id})")
+                    else:
+                        print("[RemoteInput] Failed to send Telegram prompt -- continuing with tkinter only")
+                        tg_bridge = None
+
             except Exception as exc:
                 print(f"[RemoteInput] Telegram init error: {exc} -- continuing with tkinter only")
+                if miniapp_session:
+                    miniapp_session.stop()
+                    miniapp_session = None
                 tg_bridge = None
 
         telegram_active = tg_bridge is not None and tg_msg_id is not None
@@ -1790,12 +1921,54 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
                 )
                 result_container["dialog"] = dlg
 
+                # Inject agent role label ABOVE the title if provided.
+                # We shift every existing content row down by 1 so the badge
+                # occupies row=0, the title moves to row=1, and so on.
+                _row_offset = 0
+                if name_or_role:
+                    try:
+                        # Shift existing rows down by 1
+                        for widget, orig_row in [
+                            (dlg.title_label,      0),
+                            (dlg.prompt_container, 1),
+                            (dlg.text_container,   2),
+                        ]:
+                            info = widget.grid_info()
+                            widget.grid(**{**info, "row": orig_row + 1})
+                        if hasattr(dlg, "checkbox_frame") and dlg.checkbox_frame is not None:
+                            info = dlg.checkbox_frame.grid_info()
+                            dlg.checkbox_frame.grid(**{**info, "row": 4})
+                        info = dlg.button_frame.grid_info()
+                        dlg.button_frame.grid(**{**info, "row": 5})
+                        # Move the expanding-row weight to the new index
+                        dlg.main_frame.rowconfigure(2, weight=0)
+                        dlg.main_frame.rowconfigure(3, weight=1)
+                        _row_offset = 1
+
+                        role_label = tk.Label(
+                            dlg.main_frame,
+                            text=f"\U0001f916  {name_or_role}",
+                            bg=dlg.theme_colors["bg_secondary"],
+                            fg=dlg.theme_colors["fg_secondary"],
+                            font=get_system_font(),
+                            anchor="w",
+                            padx=8,
+                            pady=2,
+                        )
+                        role_label.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+                    except Exception:
+                        pass
+
                 # Inject a Telegram status indicator into the dialog
                 if telegram_active:
                     try:
+                        if miniapp_session:
+                            tg_label_text = "\U0001f4f2  Telegram Mini App active — tap the button in the chat to respond"
+                        else:
+                            tg_label_text = "\U0001f4e1  Telegram link active — you can also reply from your phone"
                         tg_label = tk.Label(
                             dlg.main_frame,
-                            text="📡  Telegram link active — you can also reply from your phone",
+                            text=tg_label_text,
                             bg=dlg.theme_colors["bg_secondary"],
                             fg=dlg.theme_colors["accent_color"],
                             font=get_system_font(),
@@ -1803,7 +1976,7 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
                             padx=8,
                             pady=4,
                         )
-                        tg_label.grid(row=5, column=0, sticky="ew", pady=(4, 0))
+                        tg_label.grid(row=5 + _row_offset, column=0, sticky="ew", pady=(4, 0))
                         dlg._tg_label = tg_label
                     except Exception:
                         pass
@@ -1822,7 +1995,14 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
         def _telegram_poller():
             if not tg_bridge or not tg_msg_id:
                 return
-            reply = tg_bridge.poll_for_reply(tg_msg_id, tg_cancel)
+            # Use poll_for_answer which handles Mini App queue, web_app_data,
+            # and plain-text replies in a unified way.
+            _answer_queue = miniapp_session.http_server.answer_queue if miniapp_session else None
+            if hasattr(tg_bridge, "poll_for_answer"):
+                reply = tg_bridge.poll_for_answer(tg_msg_id, tg_cancel, answer_queue=_answer_queue)
+            else:
+                # Fallback for older TelegramBridge instances without poll_for_answer
+                reply = tg_bridge.poll_for_reply(tg_msg_id, tg_cancel)
             if reply is not None and not master_done.is_set():
                 result_container["text"] = reply
                 result_container["source"] = "telegram"
@@ -1843,7 +2023,7 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
                         # Update Telegram indicator to show remote answer
                         if hasattr(dlg, '_tg_label'):
                             dlg._tg_label.configure(
-                                text="✅  User answered via Telegram — closing…",
+                                text="\u2705  User answered via Telegram \u2014 closing\u2026",
                                 fg=dlg.theme_colors.get("success_color", "#137333"),
                             )
                         dlg.result = reply
@@ -1887,6 +2067,13 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
         # --- 6. Cleanup: update the Telegram message with final status ---
         if tg_cancel is not None:
             tg_cancel.set()  # ensure poller stops
+
+        # Stop Mini App session (HTTP server + tunnel) if one was active
+        if miniapp_session is not None:
+            try:
+                miniapp_session.stop()
+            except Exception:
+                pass
 
         # File-based diagnostic logger (charmap-safe: writes UTF-8 to file,
         # ASCII-only to stdout to avoid Windows encoding errors).
@@ -1977,6 +2164,12 @@ def create_remote_input_dialog(title: str, prompt: str, default_value: str = "")
 
     except Exception as e:
         print(f"[RemoteInput] Error: {e}")
+        # Best-effort cleanup of Mini App session on unexpected errors
+        try:
+            if "miniapp_session" in dir() and miniapp_session is not None:
+                miniapp_session.stop()
+        except Exception:
+            pass
         return None
 
 
@@ -1985,6 +2178,7 @@ async def get_remote_input(
     title: Annotated[str, Field(description="Title of the input dialog window")],
     prompt: Annotated[str, Field(description="The prompt/question to show to the user")],
     default_value: Annotated[str, Field(description="Default text to pre-fill in the text area")] = "",
+    name_or_role: Annotated[str, Field(description="Name or role of the AI agent making the request (e.g. 'Orchestrator', 'Code Reviewer'). Shown as a badge in the Telegram Mini App and dialog.")] = "",
     ctx: Context = None
 ) -> Dict[str, Any]:
     """
@@ -2019,7 +2213,7 @@ async def get_remote_input(
         # Run the blocking orchestration function in a thread pool
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
-            None, create_remote_input_dialog, title, prompt, default_value
+            None, create_remote_input_dialog, title, prompt, default_value, name_or_role
         )
 
         if result is not None:
