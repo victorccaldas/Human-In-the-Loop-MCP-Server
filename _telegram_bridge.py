@@ -9,8 +9,18 @@ Provides methods to:
 Used by ``get_remote_input`` in ``human_loop_server.py`` to enable answering
 Human-in-the-Loop prompts remotely via Telegram.
 
-Configuration lives in ``telegram_config.json`` (same directory as this file):
-  { "bot_token": "<BotFather token>", "chat_id": "<personal chat id>" }
+Configuration is resolved from two sources (checked in order):
+
+1. **Config file** — ``telegram_config.json`` (same directory as this file):
+   ``{ "bot_token": "<BotFather token>", "chat_id": "<personal chat id>" }``
+
+2. **Environment variables** (fallback when the config file is absent):
+   - ``TELEGRAM_BOT_TOKEN``
+   - ``TELEGRAM_CHAT_ID``
+
+The environment-variable path is especially useful when the server is
+installed via ``uvx`` / ``pip`` and there is no writable script directory
+for a config file.
 """
 
 import json
@@ -38,18 +48,35 @@ class TelegramBridge:
                 "Install it with: pip install requests"
             )
 
+        bot_token: Optional[str] = None
+        chat_id: Optional[str] = None
+
+        # Source 1: config file (preferred)
         config_path = config_path or _DEFAULT_CONFIG
-        if not os.path.isfile(config_path):
+        if os.path.isfile(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                bot_token = data.get("bot_token")
+                chat_id = data.get("chat_id")
+            except Exception as exc:
+                print(f"[TelegramBridge] Failed to read {config_path}: {exc}")
+
+        # Source 2: environment variables (fallback)
+        if not bot_token:
+            bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        if not chat_id:
+            chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+
+        if not bot_token or not chat_id:
             raise FileNotFoundError(
-                f"Telegram config not found at '{config_path}'. "
-                "Create telegram_config.json with keys: bot_token, chat_id"
+                "Telegram credentials not found. Provide either:\n"
+                "  1. telegram_config.json with keys: bot_token, chat_id\n"
+                "  2. Environment variables: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID"
             )
 
-        with open(config_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        self.bot_token: str = data["bot_token"]
-        self.chat_id: str = str(data["chat_id"])
+        self.bot_token: str = bot_token
+        self.chat_id: str = str(chat_id)
         self._update_offset: Optional[int] = None
 
     # ------------------------------------------------------------------
@@ -532,19 +559,24 @@ class TelegramBridge:
 # ------------------------------------------------------------------
 
 def is_telegram_configured() -> bool:
-    """Return True when telegram_config.json exists and contains valid keys."""
+    """Return True when Telegram credentials are available.
+
+    Checks two sources in order:
+    1. ``telegram_config.json`` file (same directory as this script)
+    2. Environment variables ``TELEGRAM_BOT_TOKEN`` and ``TELEGRAM_CHAT_ID``
+    """
+    # Source 1: config file
     try:
-        if not os.path.isfile(_DEFAULT_CONFIG):
-            return False
-        with open(_DEFAULT_CONFIG, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return bool(data.get("bot_token")) and bool(data.get("chat_id"))
-    except json.JSONDecodeError as exc:
-        print(f"[TelegramBridge] telegram_config.json is not valid JSON: {exc}")
-        return False
-    except OSError as exc:
-        print(f"[TelegramBridge] Cannot read telegram_config.json: {exc}")
-        return False
+        if os.path.isfile(_DEFAULT_CONFIG):
+            with open(_DEFAULT_CONFIG, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if bool(data.get("bot_token")) and bool(data.get("chat_id")):
+                return True
     except Exception as exc:
-        print(f"[TelegramBridge] is_telegram_configured check failed: {exc}")
-        return False
+        print(f"[TelegramBridge] telegram_config.json check failed: {exc}")
+
+    # Source 2: environment variables
+    if os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"):
+        return True
+
+    return False

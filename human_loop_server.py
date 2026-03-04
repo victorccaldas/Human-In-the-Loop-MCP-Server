@@ -2226,7 +2226,8 @@ async def get_remote_input(
     * Answering from **tkinter** closes the Telegram prompt.
     * Answering from **Telegram** closes the tkinter window.
 
-    If Telegram is not configured (missing ``telegram_config.json``), this tool
+    If Telegram is not configured (no ``telegram_config.json`` and no
+    ``TELEGRAM_BOT_TOKEN`` / ``TELEGRAM_CHAT_ID`` env vars), this tool
     behaves identically to ``get_multiline_input`` — tkinter only.
     """
     try:
@@ -2243,7 +2244,8 @@ async def get_remote_input(
                 "error": (
                     f"get_remote_input: neither GUI nor Telegram is available on platform "
                     f"'{CURRENT_PLATFORM}'. Ensure a display server is running or "
-                    "configure Telegram (telegram_config.json)."
+                    "configure Telegram (telegram_config.json or "
+                    "TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID env vars)."
                 ),
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM

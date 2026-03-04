@@ -333,11 +333,28 @@ The `get_remote_input` tool optionally supports answering prompts from Telegram.
 
 1. **Create a Telegram Bot** via [@BotFather](https://t.me/BotFather) and copy the bot token.
 2. **Get your Chat ID** by messaging your bot and visiting `https://api.telegram.org/bot<TOKEN>/getUpdates`.
-3. **Create `telegram_config.json`** in the server directory (use `telegram_config.example.json` as a template):
+3. **Configure Telegram credentials** using one of two methods:
+
+   **Option A — Config file** (place `telegram_config.json` in the server directory; use `telegram_config.example.json` as a template):
    ```json
    {
      "bot_token": "YOUR_BOT_TOKEN",
      "chat_id": "YOUR_CHAT_ID"
+   }
+   ```
+
+   **Option B — Environment variables** (useful with `uvx` / `pip install` where there is no writable script directory):
+   ```
+   TELEGRAM_BOT_TOKEN=YOUR_BOT_TOKEN
+   TELEGRAM_CHAT_ID=YOUR_CHAT_ID
+   ```
+   For example, in your VS Code `mcp.json`:
+   ```json
+   {
+     "env": {
+       "TELEGRAM_BOT_TOKEN": "YOUR_BOT_TOKEN",
+       "TELEGRAM_CHAT_ID": "YOUR_CHAT_ID"
+     }
    }
    ```
 
@@ -353,7 +370,7 @@ The `get_remote_input` tool optionally supports answering prompts from Telegram.
 
 ### Notes
 
-- If `telegram_config.json` is missing or invalid, `get_remote_input` falls back to a plain tkinter dialog (no errors).
+- If neither `telegram_config.json` nor the `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` environment variables are set, `get_remote_input` falls back to a plain tkinter dialog (no errors).
 - The `requests` Python library is required for Telegram support (`pip install requests`).
 - Each Telegram bot token supports only **one** `getUpdates` consumer at a time. If you use the same bot elsewhere with long-polling, consider using a dedicated bot for the MCP server.
 - When a Telegram reply is received, the bot reacts with a 👍 for immediate visual acknowledgement, and the prompt message is updated with a collapsible status (original prompt + response).
