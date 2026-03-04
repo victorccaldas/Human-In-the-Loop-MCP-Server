@@ -1553,7 +1553,7 @@ async def get_user_input(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available",
+                "error": "GUI system not available (1)",
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -1618,7 +1618,7 @@ async def get_user_choice(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available",
+                "error": "GUI system not available (2)",
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -1683,7 +1683,7 @@ async def get_multiline_input(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available",
+                "error": "GUI system not available (3)",
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -2205,7 +2205,7 @@ async def get_remote_input(
         if not ensure_gui_initialized() and not is_telegram_configured():
             return {
                 "success": False,
-                "error": "GUI system not available",
+                "error": "GUI system not available (4)",
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -2268,7 +2268,7 @@ async def show_confirmation_dialog(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available",
+                "error": "GUI system not available (5)",
                 "confirmed": False,
                 "platform": CURRENT_PLATFORM
             }
@@ -2319,7 +2319,7 @@ async def show_info_message(
         if not ensure_gui_initialized():
             return {
                 "success": False,
-                "error": "GUI system not available",
+                "error": "GUI system not available (6)",
                 "platform": CURRENT_PLATFORM
             }
         
