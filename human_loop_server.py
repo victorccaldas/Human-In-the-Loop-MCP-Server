@@ -198,6 +198,296 @@ def _save_persisted_dialog_height(height: int):
         print(f"[Config] Failed to save dialog height to dialog_config.json: {exc}")
 
 
+# ── Bypass Human Input Mode ──────────────────────────────────────────────────
+# When active, all tool requests are auto-approved without human interaction.
+# The lock file is the single source of truth: if it exists, bypass is ON.
+
+import json as _json_bypass
+from datetime import datetime, timezone, timedelta
+
+_BYPASS_LOCK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bypass_active.lock")
+_BYPASS_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bypass_log.jsonl")
+
+# Telegram command poller control
+_command_poller_thread: Optional[threading.Thread] = None
+_command_poller_stop: Optional[threading.Event] = None
+
+_BYPASS_AUTO_APPROVAL_MESSAGE = (
+    "[AUTO-APPROVED] The user has enabled the bypass-human-input flag.\n"
+    "This interaction has been automatically approved — no human review was performed.\n"
+    "Action: Proceed with the best judgment. Continue requesting human approval "
+    "on subsequent steps as the user may disable the bypass at any time.\n"
+    "STATUS=APPROVED"
+)
+
+
+def _is_bypass_active() -> bool:
+    """Check if bypass mode is active by checking the lock file.
+
+    The lock file is the single source of truth. If it exists and hasn't
+    expired, bypass is active. If it has expired, the lock file is deleted.
+    """
+    if not os.path.exists(_BYPASS_LOCK_FILE):
+        return False
+
+    try:
+        with open(_BYPASS_LOCK_FILE, "r", encoding="utf-8") as f:
+            data = _json_bypass.load(f)
+
+        expires_at = data.get("expires_at")
+        if expires_at:
+            expiry = datetime.fromisoformat(expires_at)
+            if datetime.now(timezone.utc) >= expiry:
+                # Expired — clean up
+                _deactivate_bypass("auto_expiry")
+                return False
+
+        return True
+    except Exception:
+        # If lock file is corrupted, treat as active (err on side of bypass)
+        return True
+
+
+def _activate_bypass(source: str = "unknown", duration_minutes: Optional[int] = None) -> dict:
+    """Activate bypass mode by creating the lock file."""
+    now = datetime.now(timezone.utc)
+    data = {
+        "activated_at": now.isoformat(),
+        "expires_at": (now + timedelta(minutes=duration_minutes)).isoformat() if duration_minutes else None,
+        "source": source,
+    }
+
+    try:
+        with open(_BYPASS_LOCK_FILE, "w", encoding="utf-8") as f:
+            _json_bypass.dump(data, f, indent=2)
+    except Exception as e:
+        print(f"[Bypass] Error creating lock file: {e}")
+        return {"success": False, "error": str(e)}
+
+    # Start Telegram command poller if available
+    _start_command_poller()
+
+    print(f"[Bypass] Activated by {source}" + (f" for {duration_minutes} minutes" if duration_minutes else " (no expiry)"))
+    return {"success": True, **data}
+
+
+def _deactivate_bypass(source: str = "unknown") -> dict:
+    """Deactivate bypass mode by deleting the lock file."""
+    try:
+        if os.path.exists(_BYPASS_LOCK_FILE):
+            os.remove(_BYPASS_LOCK_FILE)
+    except Exception as e:
+        print(f"[Bypass] Error removing lock file: {e}")
+        return {"success": False, "error": str(e)}
+
+    # NOTE: The Telegram command poller is intentionally NOT stopped here.
+    # It must keep running so it can receive future /bypass on commands.
+
+    print(f"[Bypass] Deactivated by {source}")
+    return {"success": True, "deactivated_by": source}
+
+
+def _log_bypass(tool_name: str, args_summary: dict) -> None:
+    """Log a bypassed tool interaction to the JSONL audit log."""
+    try:
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "tool": tool_name,
+            "args_summary": args_summary,
+        }
+        with open(_BYPASS_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(_json_bypass.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception as e:
+        print(f"[Bypass] Logging error: {e}")
+
+
+def _check_bypass(tool_name: str, args_summary: dict) -> Optional[Dict[str, Any]]:
+    """Check if bypass is active and return auto-approval response if so.
+
+    Returns None if bypass is not active (tool should proceed normally).
+    Returns a tool-specific auto-approval dict if bypass is active.
+    """
+    if not _is_bypass_active():
+        return None
+
+    # Log the bypassed interaction
+    _log_bypass(tool_name, args_summary)
+
+    # Build tool-specific response
+    platform_name = "windows" if IS_WINDOWS else ("macos" if IS_MACOS else "linux")
+
+    if tool_name in ("get_user_input", "get_multiline_input", "get_remote_input"):
+        return {
+            "success": True,
+            "user_input": _BYPASS_AUTO_APPROVAL_MESSAGE,
+            "character_count": len(_BYPASS_AUTO_APPROVAL_MESSAGE),
+            "line_count": _BYPASS_AUTO_APPROVAL_MESSAGE.count("\n") + 1,
+            "cancelled": False,
+            "platform": platform_name,
+            "bypassed": True,
+        }
+    elif tool_name == "get_user_choice":
+        return {
+            "success": True,
+            "selected_choice": _BYPASS_AUTO_APPROVAL_MESSAGE,
+            "cancelled": False,
+            "platform": platform_name,
+            "bypassed": True,
+        }
+    elif tool_name == "show_confirmation_dialog":
+        return {
+            "success": True,
+            "confirmed": True,
+            "response": "yes",
+            "platform": platform_name,
+            "bypassed": True,
+        }
+    elif tool_name == "show_info_message":
+        return {
+            "success": True,
+            "acknowledged": True,
+            "platform": platform_name,
+            "bypassed": True,
+        }
+
+    return None
+
+
+# ── Telegram Command Poller ──────────────────────────────────────────────────
+
+def _start_command_poller():
+    """Start the Telegram command poller thread if Telegram is configured."""
+    global _command_poller_thread, _command_poller_stop
+
+    if not is_telegram_configured() or TelegramBridge is None:
+        return
+
+    # Don't start if already running
+    if _command_poller_thread is not None and _command_poller_thread.is_alive():
+        return
+
+    _command_poller_stop = threading.Event()
+    _command_poller_thread = threading.Thread(
+        target=_telegram_command_poller_loop,
+        daemon=True,
+        name="bypass-command-poller",
+    )
+    _command_poller_thread.start()
+    print("[Bypass] Telegram command poller started")
+
+
+def _stop_command_poller():
+    """Stop the Telegram command poller thread."""
+    global _command_poller_thread, _command_poller_stop
+
+    if _command_poller_stop is not None:
+        _command_poller_stop.set()
+
+    if _command_poller_thread is not None and _command_poller_thread.is_alive():
+        _command_poller_thread.join(timeout=5)
+
+    _command_poller_thread = None
+    _command_poller_stop = None
+    print("[Bypass] Telegram command poller stopped")
+
+
+def _telegram_command_poller_loop():
+    """Background thread that listens for /bypass commands in Telegram."""
+    try:
+        import requests as _requests_poller
+
+        tg = TelegramBridge()
+        # Flush any pending updates so we only process new ones
+        if hasattr(tg, "flush_updates"):
+            tg.flush_updates()
+
+        _offset = None
+
+        while not _command_poller_stop.is_set():
+            try:
+                # Long-poll for updates (3 second timeout on Telegram side)
+                params = {"timeout": 3, "allowed_updates": ["message"]}
+                if _offset is not None:
+                    params["offset"] = _offset
+
+                resp = _requests_poller.get(
+                    f"https://api.telegram.org/bot{tg.bot_token}/getUpdates",
+                    params=params,
+                    timeout=10,
+                )
+
+                if resp.status_code != 200:
+                    continue
+
+                data = resp.json()
+                if not data.get("ok"):
+                    continue
+
+                for update in data.get("result", []):
+                    _offset = update["update_id"] + 1
+                    msg = update.get("message", {})
+                    text = (msg.get("text") or "").strip().lower()
+                    chat_id = str(msg.get("chat", {}).get("id", ""))
+
+                    # Only process messages from the configured chat
+                    if chat_id != str(tg.chat_id):
+                        continue
+
+                    if text.startswith("/bypass"):
+                        _handle_bypass_command(tg, text)
+
+            except Exception as e:
+                if not _command_poller_stop.is_set():
+                    print(f"[Bypass] Command poller error: {e}")
+                    _command_poller_stop.wait(timeout=2)
+    except Exception as e:
+        print(f"[Bypass] Command poller failed to start: {e}")
+
+
+def _handle_bypass_command(tg, text: str):
+    """Handle a /bypass command from Telegram."""
+    parts = text.split()
+
+    if len(parts) >= 2 and parts[1] == "off":
+        _deactivate_bypass("telegram")
+        tg.send_text("✅ Bypass mode deactivated. Human approval is now required for all requests.")
+
+    elif len(parts) >= 2 and parts[1] == "on":
+        duration = None
+        if len(parts) >= 3:
+            try:
+                duration = int(parts[2])
+            except ValueError:
+                tg.send_text(f"⚠️ Invalid duration: {parts[2]}. Use /bypass on [minutes]")
+                return
+
+        _activate_bypass("telegram", duration_minutes=duration)
+        msg = "⚡ Bypass mode activated."
+        if duration:
+            msg += f" Auto-expires in {duration} minutes."
+        else:
+            msg += " No expiry set — send /bypass off to deactivate."
+        tg.send_text(msg)
+
+    elif len(parts) == 1:
+        # Just "/bypass" — show status
+        if _is_bypass_active():
+            try:
+                with open(_BYPASS_LOCK_FILE, "r", encoding="utf-8") as f:
+                    data = _json_bypass.load(f)
+                activated = data.get("activated_at", "unknown")
+                expires = data.get("expires_at", "no expiry")
+                source = data.get("source", "unknown")
+                tg.send_text(f"ℹ️ Bypass is ACTIVE\nActivated: {activated}\nExpires: {expires}\nSource: {source}")
+            except Exception:
+                tg.send_text("ℹ️ Bypass is ACTIVE (details unavailable)")
+        else:
+            tg.send_text("ℹ️ Bypass is INACTIVE. Send /bypass on to activate.")
+
+    else:
+        tg.send_text("Usage: /bypass on [minutes] | /bypass off | /bypass (status)")
+
+
 def get_system_font():
     """Get appropriate system font for the current platform"""
     if IS_MACOS:
@@ -1583,6 +1873,11 @@ async def get_user_input(
     This tool opens a GUI dialog box where the user can input information that the LLM needs.
     Perfect for getting specific details, clarifications, or data from the user.
     """
+    # Check bypass mode
+    bypass_result = _check_bypass("get_user_input", {"title": title, "prompt": prompt})
+    if bypass_result is not None:
+        return bypass_result
+
     try:
         if ctx:
             await ctx.info(f"Requesting user input: {prompt}")
@@ -1651,6 +1946,11 @@ async def get_user_choice(
     This tool opens a GUI dialog box with a list of choices where the user can select
     one or multiple options. Perfect for getting decisions, preferences, or selections from the user.
     """
+    # Check bypass mode
+    bypass_result = _check_bypass("get_user_choice", {"title": title, "prompt": prompt})
+    if bypass_result is not None:
+        return bypass_result
+
     try:
         if ctx:
             await ctx.info(f"Requesting user choice: {prompt}")
@@ -1721,6 +2021,11 @@ async def get_multiline_input(
     This tool opens a GUI dialog box with a large text area where the user can input
     multiple lines of text. Perfect for getting detailed descriptions, code, or long-form content.
     """
+    # Check bypass mode
+    bypass_result = _check_bypass("get_multiline_input", {"title": title, "prompt": prompt})
+    if bypass_result is not None:
+        return bypass_result
+
     try:
         if ctx:
             await ctx.info(f"Requesting multiline user input: {prompt}")
@@ -2329,6 +2634,11 @@ async def get_remote_input(
     ``TELEGRAM_BOT_TOKEN`` / ``TELEGRAM_CHAT_ID`` env vars), this tool
     behaves identically to ``get_multiline_input`` — tkinter only.
     """
+    # Check bypass mode
+    bypass_result = _check_bypass("get_remote_input", {"title": title, "prompt": prompt})
+    if bypass_result is not None:
+        return bypass_result
+
     try:
         if ctx:
             tg_status = "active" if is_telegram_configured() else "not configured (tkinter only)"
@@ -2400,6 +2710,11 @@ async def show_confirmation_dialog(
     This tool displays a message to the user and asks for confirmation.
     Perfect for getting approval before proceeding with an action.
     """
+    # Check bypass mode
+    bypass_result = _check_bypass("show_confirmation_dialog", {"title": title, "message": message})
+    if bypass_result is not None:
+        return bypass_result
+
     try:
         if ctx:
             await ctx.info(f"Requesting user confirmation: {message}")
@@ -2454,6 +2769,11 @@ async def show_info_message(
     This tool displays an informational message dialog to notify the user about something.
     The user just needs to click OK to acknowledge the message.
     """
+    # Check bypass mode
+    bypass_result = _check_bypass("show_info_message", {"title": title, "message": message})
+    if bypass_result is not None:
+        return bypass_result
+
     try:
         if ctx:
             await ctx.info(f"Showing info message to user: {message}")
@@ -2635,6 +2955,7 @@ async def health_check() -> Dict[str, Any]:
             "is_windows": IS_WINDOWS,
             "is_macos": IS_MACOS,
             "is_linux": IS_LINUX,
+            "bypass_active": _is_bypass_active(),
             "tools_available": [
                 "get_user_input",
                 "get_user_choice", 
@@ -2690,6 +3011,15 @@ def main():
         print("WARNING: tkinter is not available \u2014 GUI tools are disabled.")
         print("Only get_remote_input (with Telegram) and health_check will work.")
         print("Install python3-tk or ensure tkinter is in your Python to enable GUI tools.")
+
+    # Check for existing bypass lock file
+    if _is_bypass_active():
+        print("NOTICE: Bypass mode is ACTIVE (lock file found). All tool requests will be auto-approved.")
+
+    # Always start Telegram command poller if Telegram is configured,
+    # regardless of bypass state — so /bypass on can be received at any time.
+    if is_telegram_configured() and TelegramBridge is not None:
+        _start_command_poller()
 
     print("Starting MCP server...")
     

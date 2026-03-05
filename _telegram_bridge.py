@@ -416,6 +416,29 @@ class TelegramBridge:
             _log(f"Status send EXCEPTION: {exc}")
         return False
 
+    def send_text(self, text: str) -> Optional[int]:
+        """Send a plain text message to the configured Telegram chat.
+
+        Returns the message_id on success, None on failure.
+        """
+        if not self.bot_token or not self.chat_id:
+            return None
+
+        try:
+            resp = requests.post(
+                f"https://api.telegram.org/bot{self.bot_token}/sendMessage",
+                json={"chat_id": self.chat_id, "text": text},
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("ok"):
+                    return data["result"]["message_id"]
+        except Exception as e:
+            print(f"[TelegramBridge] send_text error: {e}")
+
+        return None
+
     def delete_message(self, message_id: int) -> bool:
         """Delete a message from the chat.  Returns True on success."""
         diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
