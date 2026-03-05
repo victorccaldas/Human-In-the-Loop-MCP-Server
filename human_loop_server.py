@@ -13,8 +13,24 @@ import platform
 import subprocess
 import threading
 import time
-import tkinter as tk
-from tkinter import messagebox, simpledialog, ttk
+try:
+    import tkinter as tk
+    from tkinter import messagebox, simpledialog, ttk
+    _TKINTER_AVAILABLE = True
+except ImportError:
+    _TKINTER_AVAILABLE = False
+    tk = None           # type: ignore[assignment]
+    messagebox = None   # type: ignore[assignment]
+    simpledialog = None # type: ignore[assignment]
+    ttk = None          # type: ignore[assignment]
+    import sys as _sys_tk
+    print(
+        "[Startup] tkinter is not available \u2014 GUI dialog tools will be "
+        "disabled. Only get_remote_input (Telegram) and health_check will "
+        "function. Install python3-tk (Linux) or ensure tkinter is bundled "
+        "with your Python installation to enable GUI tools.",
+        file=_sys_tk.stderr,
+    )
 from typing import List, Dict, Any, Optional, Literal
 import sys
 import os
@@ -402,6 +418,8 @@ def configure_macos_app():
 def ensure_gui_initialized():
     """Ensure GUI subsystem is properly initialized"""
     global _gui_initialized
+    if not _TKINTER_AVAILABLE:
+        return False
     with _gui_lock:
         if not _gui_initialized:
             try:
@@ -432,6 +450,8 @@ def _ensure_persistent_root():
     Toplevel widgets from multiple concurrent worker threads.
     """
     global _persistent_root, _persistent_gui_thread, _dialog_request_queue
+    if not _TKINTER_AVAILABLE:
+        return None
     with _gui_lock:
         if _persistent_gui_thread is not None and _persistent_gui_thread.is_alive():
             return _persistent_root
@@ -1869,23 +1889,102 @@ def create_remote_input_dialog(
     try:
         root = _ensure_persistent_root()
         if root is None:
-            # No display — try Telegram-only mode if configured
+            # ── Headless (no display) — Telegram-only mode with MiniApp support ──
+            # Mirrors the full tkinter+Telegram path's MiniApp logic so that
+            # headless environments (CI, SSH, containers) also get the rich
+            # Telegram Mini App experience when infrastructure is available.
             if not is_telegram_configured() or TelegramBridge is None:
                 return None
+
+            _miniapp_session: Optional[MiniAppSession] = None
             try:
                 _tg = TelegramBridge()
-                _msg_id = _tg.send_prompt(title, prompt)
+
+                # Attempt to build a MiniApp session (HTTP server + Cloudflare tunnel)
+                _all_prompts = _get_multiline_input_custom_prompts()
+                _miniapp_session = _build_miniapp_session(title, prompt, _all_prompts, name_or_role)
+
+                if _miniapp_session:
+                    # MiniApp path: send prompt with InlineKeyboard "Open" button
+                    _msg_id = _tg.send_prompt_with_miniapp(
+                        title, prompt, _miniapp_session.webapp_url, name_or_role
+                    )
+                    if _msg_id:
+                        print(f"[RemoteInput][Headless] Telegram Mini App prompt sent (msg_id={_msg_id})")
+                    else:
+                        # send_prompt_with_miniapp failed — tear down MiniApp, fall back to plain
+                        print("[RemoteInput][Headless] send_prompt_with_miniapp failed — falling back to plain prompt")
+                        _miniapp_session.stop()
+                        _miniapp_session = None
+                        _msg_id = _tg.send_prompt(title, prompt)
+                else:
+                    # No MiniApp available — use plain prompt (original behaviour)
+                    _msg_id = _tg.send_prompt(title, prompt)
+
                 if not _msg_id:
                     return None
+
+                # Poll for the answer using poll_for_answer (supports MiniApp
+                # answer_queue, web_app_data, and plain-text replies) when
+                # available, otherwise fall back to legacy poll_for_reply.
                 import threading as _threading
                 _cancel = _threading.Event()
-                _reply = _tg.poll_for_reply(_msg_id, cancel_event=_cancel)
+
+                _answer_queue = (
+                    _miniapp_session.http_server.answer_queue
+                    if _miniapp_session else None
+                )
+
+                if hasattr(_tg, "poll_for_answer"):
+                    _reply = _tg.poll_for_answer(
+                        _msg_id, _cancel, answer_queue=_answer_queue
+                    )
+                else:
+                    # Fallback for older TelegramBridge without poll_for_answer
+                    _reply = _tg.poll_for_reply(_msg_id, cancel_event=_cancel)
+
+                # Edit the Telegram message with final status (mirrors the
+                # cleanup logic from the full tkinter+Telegram path).
                 if _reply is not None:
-                    _tg.edit_message(_msg_id, "\u2705 Response received.")
+                    _esc = _tg._escape_html
+                    _display = (_reply or "")[:2000]
+                    _prompt_trunc = prompt[:3000]
+                    if len(prompt) > 3000:
+                        _prompt_trunc += "\n...(truncated)"
+                    _edited_text = (
+                        f"\U0001f5a5\ufe0f <b>{_esc(title)}</b>\n\n"
+                        f"Original message:\n"
+                        f"<blockquote expandable>{_esc(_prompt_trunc)}</blockquote>\n\n"
+                        f"Response via Telegram:\n"
+                        f"<blockquote expandable>{_esc(_display)}</blockquote>"
+                    )
+                    try:
+                        _tg.edit_message(_msg_id, _edited_text, parse_mode="HTML")
+                    except Exception:
+                        # Best-effort: if HTML edit fails, fall back to simple status
+                        try:
+                            _tg.edit_message(_msg_id, "\u2705 Response received.")
+                        except Exception:
+                            pass
+                else:
+                    # No reply (timeout / cancellation)
+                    try:
+                        _tg.edit_message(_msg_id, "\u23f0 Timed out — no response received.")
+                    except Exception:
+                        pass
+
                 return _reply
+
             except Exception as _exc:
                 print(f"[RemoteInput] Telegram-only mode error: {_exc}")
                 return None
+            finally:
+                # Always clean up MiniApp session (HTTP server + tunnel)
+                if _miniapp_session is not None:
+                    try:
+                        _miniapp_session.stop()
+                    except Exception:
+                        pass
 
         # --- Shared synchronisation primitives ---
         master_done = threading.Event()   # fires when EITHER channel answers
@@ -2522,6 +2621,7 @@ async def health_check() -> Dict[str, Any]:
         return {
             "status": "healthy" if gui_available else "degraded",
             "gui_available": gui_available,
+            "tkinter_available": _TKINTER_AVAILABLE,
             "server_name": "Human-in-the-Loop Server",
             "platform": CURRENT_PLATFORM,
             "platform_details": {
@@ -2549,6 +2649,7 @@ async def health_check() -> Dict[str, Any]:
         return {
             "status": "unhealthy",
             "gui_available": False,
+            "tkinter_available": _TKINTER_AVAILABLE,
             "error": str(e),
             "platform": CURRENT_PLATFORM
         }
@@ -2585,6 +2686,11 @@ def main():
     # Each tool function already calls ensure_gui_initialized() before use,
     # so we skip it here to avoid blocking the MCP handshake on startup.
     
+    if not _TKINTER_AVAILABLE:
+        print("WARNING: tkinter is not available \u2014 GUI tools are disabled.")
+        print("Only get_remote_input (with Telegram) and health_check will work.")
+        print("Install python3-tk or ensure tkinter is in your Python to enable GUI tools.")
+
     print("Starting MCP server...")
     
     # Run the server
