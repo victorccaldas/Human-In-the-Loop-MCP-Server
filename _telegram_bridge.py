@@ -499,6 +499,30 @@ class TelegramBridge:
     # Polling
     # ------------------------------------------------------------------
 
+    def set_my_commands(self, commands: list) -> bool:
+        """Register bot commands for the Telegram command menu.
+
+        Each item in commands must be a dict with 'command' and 'description' keys.
+        This makes the '/' button in Telegram show available commands.
+        Returns True on success, False otherwise.
+        """
+        if not self.bot_token:
+            return False
+
+        try:
+            resp = requests.post(
+                self._api("setMyCommands"),
+                json={"commands": commands},
+                timeout=10,
+            )
+            if resp.status_code == 200 and resp.json().get("ok"):
+                print("[TelegramBridge] Bot command menu registered successfully.")
+                return True
+            print(f"[TelegramBridge] setMyCommands failed: {resp.status_code} \u2014 {resp.text[:200]}")
+        except Exception as exc:
+            print(f"[TelegramBridge] setMyCommands error: {exc}")
+        return False
+
     def flush_updates(self) -> None:
         """Consume all pending updates so we only see new messages."""
         try:

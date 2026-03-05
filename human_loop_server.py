@@ -401,6 +401,13 @@ def _telegram_command_poller_loop():
         if hasattr(tg, "flush_updates"):
             tg.flush_updates()
 
+        # Register bot command menu (shows "/" button in Telegram)
+        tg.set_my_commands([
+            {"command": "bypass", "description": "Show bypass mode status"},
+            {"command": "bypass_on", "description": "Activate bypass (auto-approve all). Usage: /bypass_on [minutes]"},
+            {"command": "bypass_off", "description": "Deactivate bypass (require human approval)"},
+        ])
+
         _offset = None
 
         while not _command_poller_stop.is_set():
@@ -446,6 +453,8 @@ def _telegram_command_poller_loop():
 
 def _handle_bypass_command(tg, text: str):
     """Handle a /bypass command from Telegram."""
+    # Normalize underscore variants from Telegram's command menu
+    text = text.replace("/bypass_on", "/bypass on").replace("/bypass_off", "/bypass off")
     parts = text.split()
 
     if len(parts) >= 2 and parts[1] == "off":
