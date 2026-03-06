@@ -18,6 +18,7 @@ MINIAPP_HTML = """<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Human-in-the-Loop</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
     // ── Injected by Python at serve time ──────────────────────────────────
     const SESSION = __SESSION_JSON__;
@@ -79,11 +80,85 @@ MINIAPP_HTML = """<!DOCTYPE html>
       padding: 12px 14px;
       font-size: 14px;
       color: var(--tg-text);
-      white-space: pre-wrap;
       word-break: break-word;
       max-height: 200px;
       overflow-y: auto;
       flex-shrink: 0;
+      line-height: 1.5;
+    }
+    /* Markdown rendering styles for agent prompt */
+    #prompt-box h1, #prompt-box h2, #prompt-box h3,
+    #prompt-box h4, #prompt-box h5, #prompt-box h6 {
+      margin: 8px 0 4px 0;
+      line-height: 1.3;
+    }
+    #prompt-box h1 { font-size: 1.3em; }
+    #prompt-box h2 { font-size: 1.15em; }
+    #prompt-box h3 { font-size: 1.05em; }
+    #prompt-box p {
+      margin: 4px 0;
+    }
+    #prompt-box ul, #prompt-box ol {
+      margin: 4px 0;
+      padding-left: 20px;
+    }
+    #prompt-box li {
+      margin: 2px 0;
+    }
+    #prompt-box code {
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 0.92em;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    }
+    #prompt-box pre {
+      background: rgba(0, 0, 0, 0.06);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin: 6px 0;
+      overflow-x: auto;
+    }
+    #prompt-box pre code {
+      background: transparent;
+      padding: 0;
+    }
+    #prompt-box blockquote {
+      border-left: 3px solid var(--tg-hint);
+      margin: 6px 0;
+      padding: 4px 10px;
+      color: var(--tg-hint);
+    }
+    #prompt-box strong {
+      font-weight: 700;
+    }
+    #prompt-box em {
+      font-style: italic;
+    }
+    #prompt-box a {
+      color: var(--tg-link);
+      text-decoration: none;
+    }
+    #prompt-box a:hover {
+      text-decoration: underline;
+    }
+    #prompt-box hr {
+      border: none;
+      border-top: 1px solid var(--tg-hint);
+      margin: 8px 0;
+    }
+    #prompt-box table {
+      border-collapse: collapse;
+      margin: 6px 0;
+      font-size: 0.92em;
+    }
+    #prompt-box table th, #prompt-box table td {
+      border: 1px solid var(--tg-hint);
+      padding: 4px 8px;
+    }
+    #prompt-box table th {
+      background: rgba(0, 0, 0, 0.04);
+      font-weight: 600;
     }
 
     /* Textarea */
@@ -269,7 +344,14 @@ MINIAPP_HTML = """<!DOCTYPE html>
         roleEl.style.display = "block";
       }
 
-      document.getElementById("prompt-box").textContent = SESSION.prompt || "";
+      // Render agent prompt with markdown formatting
+      var promptText = SESSION.prompt || "";
+      if (typeof marked !== "undefined" && promptText) {
+        marked.setOptions({ breaks: true, gfm: true });
+        document.getElementById("prompt-box").innerHTML = marked.parse(promptText);
+      } else {
+        document.getElementById("prompt-box").textContent = promptText;
+      }
 
       var textarea  = document.getElementById("answer");
       var presetsSection = document.getElementById("presets-section");
