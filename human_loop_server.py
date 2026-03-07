@@ -1712,7 +1712,6 @@ class MultilineInputDialog:
         
         # Add keyboard shortcuts
         self.dialog.bind('<Control-Return>', lambda e: self.ok_clicked())
-        self.dialog.bind('<Escape>', lambda e: self.cancel_clicked())
 
         # Disable always-on-top so the window can be freely minimized.
         # Must come after configure_modern_window which sets topmost=True on Windows.
@@ -1722,9 +1721,9 @@ class MultilineInputDialog:
         # Apply initial active-color state based on pre-checked prompts
         self._on_prompt_selection_change()
 
-        # Resurface every 60 seconds to remind the user the dialog is still open
+        # Keep the attribute for close-path compatibility without scheduling
+        # the old foreground reminder timer.
         self._reminder_id = None
-        self._reminder_id = self.dialog.after(60000, self._reminder)
 
         # No wait_window() here — the caller thread blocks on self._done_event.wait()
         # instead, allowing multiple dialogs to be open and active simultaneously.
@@ -1751,19 +1750,6 @@ class MultilineInputDialog:
         
         self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
-    def _reminder(self):
-        """Resurface the dialog every 60 seconds ONLY if it is minimized."""
-        try:
-            if self.dialog.winfo_exists():
-                # Only restore and lift when actually minimized; don't disturb an active window
-                if self.dialog.wm_state() == 'iconic':
-                    self.dialog.deiconify()
-                    self.dialog.lift()
-                # Schedule the next reminder
-                self._reminder_id = self.dialog.after(60000, self._reminder)
-        except Exception as exc:
-            print(f"[Dialog] Reminder loop error: {type(exc).__name__}: {exc}")
-
     def _on_prompt_selection_change(self):
         """Apply active_color only to selected checkbox rows and text object.
 
@@ -1822,7 +1808,7 @@ class MultilineInputDialog:
         return "break"
 
     def ok_clicked(self):
-        # Cancel the periodic reminder before closing
+        # Cancel any pending reminder callback before closing.
         try:
             if self._reminder_id is not None:
                 self.dialog.after_cancel(self._reminder_id)
@@ -1841,7 +1827,7 @@ class MultilineInputDialog:
             self._done_event.set()
 
     def cancel_clicked(self):
-        # Cancel the periodic reminder before closing
+        # Cancel any pending reminder callback before closing.
         try:
             if self._reminder_id is not None:
                 self.dialog.after_cancel(self._reminder_id)
@@ -2457,7 +2443,7 @@ def create_remote_input_dialog(
                     if dlg is None:
                         return
                     try:
-                        # Cancel the periodic reminder
+                        # Cancel any pending reminder callback
                         if hasattr(dlg, '_reminder_id') and dlg._reminder_id is not None:
                             dlg.dialog.after_cancel(dlg._reminder_id)
                     except Exception:
