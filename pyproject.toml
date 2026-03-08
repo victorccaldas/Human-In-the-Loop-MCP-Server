@@ -80,13 +80,16 @@ Changelog = "https://github.com/GongRzhe/Human-In-the-Loop-MCP-Server/releases"
 packages = ["."]
 include = [
     "human_loop_server.py",
+    "_telegram_shared_hub.py",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "human_loop_server.py",
+    "_telegram_shared_hub.py",
     "README.md",
     "LICENSE",
+    "tests/*.py",
 ]
 
 # Black configuration

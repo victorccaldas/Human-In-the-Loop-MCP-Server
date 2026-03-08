@@ -48,6 +48,58 @@ except ImportError:
     def is_telegram_configured() -> bool:  # type: ignore[misc]
         return False
 
+# Shared Telegram hub helpers (optional — degrade gracefully when unavailable)
+try:
+    from _telegram_shared_hub import (
+        SharedTelegramHubError,
+        describe_shared_hub_status,
+        detect_unsafe_direct_polling,
+        ensure_shared_telegram_hub,
+        get_bypass_lock_file,
+        get_bypass_log_file,
+        get_shared_telegram_mode,
+        is_shared_telegram_enabled,
+        load_telegram_credentials,
+        run_shared_hub_from_argv,
+    )
+except ImportError:
+    class SharedTelegramHubError(RuntimeError):
+        pass
+
+    def describe_shared_hub_status() -> Dict[str, Any]:
+        return {
+            "mode": "off",
+            "enabled": False,
+            "configured": False,
+            "descriptor_present": False,
+            "hub_healthy": False,
+            "descriptor": None,
+        }
+
+    def detect_unsafe_direct_polling(_credentials=None) -> None:
+        return None
+
+    def ensure_shared_telegram_hub(**_kwargs):
+        raise SharedTelegramHubError("Shared Telegram hub support is unavailable.")
+
+    def get_bypass_lock_file(_credentials=None) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bypass_active.lock")
+
+    def get_bypass_log_file(_credentials=None) -> str:
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bypass_log.jsonl")
+
+    def get_shared_telegram_mode() -> str:
+        return "off"
+
+    def is_shared_telegram_enabled() -> bool:
+        return False
+
+    def load_telegram_credentials(*_args, **_kwargs):
+        return None
+
+    def run_shared_hub_from_argv(_argv=None) -> int:
+        return 1
+
 # Mini App components (optional — degrade gracefully if cloudflared unavailable)
 try:
     import secrets as _secrets
@@ -205,9 +257,6 @@ def _save_persisted_dialog_height(height: int):
 import json as _json_bypass
 from datetime import datetime, timezone, timedelta
 
-_BYPASS_LOCK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bypass_active.lock")
-_BYPASS_LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bypass_log.jsonl")
-
 # Telegram command poller control
 _command_poller_thread: Optional[threading.Thread] = None
 _command_poller_stop: Optional[threading.Event] = None
@@ -221,17 +270,29 @@ _BYPASS_AUTO_APPROVAL_MESSAGE = (
 )
 
 
+def _get_bypass_lock_path() -> str:
+    """Return the host-global bypass lock file path for this runtime scope."""
+    return get_bypass_lock_file(load_telegram_credentials())
+
+
+def _get_bypass_log_path() -> str:
+    """Return the host-global bypass audit log path for this runtime scope."""
+    return get_bypass_log_file(load_telegram_credentials())
+
+
 def _is_bypass_active() -> bool:
     """Check if bypass mode is active by checking the lock file.
 
     The lock file is the single source of truth. If it exists and hasn't
     expired, bypass is active. If it has expired, the lock file is deleted.
     """
-    if not os.path.exists(_BYPASS_LOCK_FILE):
+    bypass_lock_file = _get_bypass_lock_path()
+
+    if not os.path.exists(bypass_lock_file):
         return False
 
     try:
-        with open(_BYPASS_LOCK_FILE, "r", encoding="utf-8") as f:
+        with open(bypass_lock_file, "r", encoding="utf-8") as f:
             data = _json_bypass.load(f)
 
         expires_at = data.get("expires_at")
@@ -251,6 +312,7 @@ def _is_bypass_active() -> bool:
 def _activate_bypass(source: str = "unknown", duration_minutes: Optional[int] = None) -> dict:
     """Activate bypass mode by creating the lock file."""
     now = datetime.now(timezone.utc)
+    bypass_lock_file = _get_bypass_lock_path()
     data = {
         "activated_at": now.isoformat(),
         "expires_at": (now + timedelta(minutes=duration_minutes)).isoformat() if duration_minutes else None,
@@ -258,7 +320,7 @@ def _activate_bypass(source: str = "unknown", duration_minutes: Optional[int] = 
     }
 
     try:
-        with open(_BYPASS_LOCK_FILE, "w", encoding="utf-8") as f:
+        with open(bypass_lock_file, "w", encoding="utf-8") as f:
             _json_bypass.dump(data, f, indent=2)
     except Exception as e:
         print(f"[Bypass] Error creating lock file: {e}")
@@ -273,9 +335,10 @@ def _activate_bypass(source: str = "unknown", duration_minutes: Optional[int] = 
 
 def _deactivate_bypass(source: str = "unknown") -> dict:
     """Deactivate bypass mode by deleting the lock file."""
+    bypass_lock_file = _get_bypass_lock_path()
     try:
-        if os.path.exists(_BYPASS_LOCK_FILE):
-            os.remove(_BYPASS_LOCK_FILE)
+        if os.path.exists(bypass_lock_file):
+            os.remove(bypass_lock_file)
     except Exception as e:
         print(f"[Bypass] Error removing lock file: {e}")
         return {"success": False, "error": str(e)}
@@ -289,13 +352,14 @@ def _deactivate_bypass(source: str = "unknown") -> dict:
 
 def _log_bypass(tool_name: str, args_summary: dict) -> None:
     """Log a bypassed tool interaction to the JSONL audit log."""
+    bypass_log_file = _get_bypass_log_path()
     try:
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "tool": tool_name,
             "args_summary": args_summary,
         }
-        with open(_BYPASS_LOG_FILE, "a", encoding="utf-8") as f:
+        with open(bypass_log_file, "a", encoding="utf-8") as f:
             f.write(_json_bypass.dumps(entry, ensure_ascii=False) + "\n")
     except Exception as e:
         print(f"[Bypass] Logging error: {e}")
@@ -362,6 +426,15 @@ def _start_command_poller():
     if not is_telegram_configured() or TelegramBridge is None:
         return
 
+    # In shared mode the hub is the sole getUpdates owner, so startup only
+    # needs to ensure the hub is discoverable/running and must not start a
+    # second local command poller thread in this instance.
+    if is_shared_telegram_enabled():
+        ensure_shared_telegram_hub()
+        return
+
+    detect_unsafe_direct_polling(load_telegram_credentials())
+
     # Don't start if already running
     if _command_poller_thread is not None and _command_poller_thread.is_alive():
         return
@@ -379,6 +452,10 @@ def _start_command_poller():
 def _stop_command_poller():
     """Stop the Telegram command poller thread."""
     global _command_poller_thread, _command_poller_stop
+
+    # Shared mode has no per-instance command poller to stop locally.
+    if is_shared_telegram_enabled():
+        return
 
     if _command_poller_stop is not None:
         _command_poller_stop.set()
@@ -482,7 +559,7 @@ def _handle_bypass_command(tg, text: str):
         # Just "/bypass" — show status
         if _is_bypass_active():
             try:
-                with open(_BYPASS_LOCK_FILE, "r", encoding="utf-8") as f:
+                with open(_get_bypass_lock_path(), "r", encoding="utf-8") as f:
                     data = _json_bypass.load(f)
                 activated = data.get("activated_at", "unknown")
                 expires = data.get("expires_at", "no expiry")
@@ -2269,13 +2346,21 @@ def create_remote_input_dialog(
                 else:
                     # No reply (timeout / cancellation)
                     try:
-                        _tg.edit_message(_msg_id, "\u23f0 Timed out — no response received.")
+                        if transport_cancel.is_set():
+                            _tg.edit_message(
+                                _msg_id,
+                                "\u274c Request cancelled — MCP connection closed.",
+                            )
+                        else:
+                            _tg.edit_message(_msg_id, "\u23f0 Timed out — no response received.")
                     except Exception:
                         pass
 
                 return _reply
 
             except Exception as _exc:
+                if is_shared_telegram_enabled():
+                    raise
                 print(f"[RemoteInput] Telegram-only mode error: {_exc}")
                 return None
             finally:
@@ -2655,11 +2740,38 @@ async def get_remote_input(
                 "platform": CURRENT_PLATFORM
             }
 
-        # Run the blocking orchestration function in a thread pool
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            None, create_remote_input_dialog, title, prompt, default_value, name_or_role
+        # Run the blocking orchestration function in a dedicated worker so an
+        # upstream transport cancellation can signal cleanup into the thread.
+        import concurrent.futures
+
+        loop = asyncio.get_running_loop()
+        transport_cancel = threading.Event()
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        worker_future = executor.submit(
+            create_remote_input_dialog,
+            title,
+            prompt,
+            default_value,
+            name_or_role,
+            transport_cancel,
         )
+        result_future = asyncio.wrap_future(worker_future, loop=loop)
+
+        try:
+            result = await result_future
+        except asyncio.CancelledError:
+            transport_cancel.set()
+            if ctx:
+                await ctx.warning(
+                    "Remote input transport cancelled; signalling dialog cleanup."
+                )
+            try:
+                await asyncio.wait_for(asyncio.shield(result_future), timeout=2.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                pass
+            raise
+        finally:
+            executor.shutdown(wait=False, cancel_futures=False)
 
         if result is not None:
             if ctx:
@@ -2932,6 +3044,7 @@ async def health_check() -> Dict[str, Any]:
     """Check if the Human-in-the-Loop server is running and GUI is available."""
     try:
         gui_available = ensure_gui_initialized()
+        shared_hub_status = describe_shared_hub_status()
         
         return {
             "status": "healthy" if gui_available else "degraded",
@@ -2951,6 +3064,7 @@ async def health_check() -> Dict[str, Any]:
             "is_macos": IS_MACOS,
             "is_linux": IS_LINUX,
             "bypass_active": _is_bypass_active(),
+            "shared_telegram": shared_hub_status,
             "tools_available": [
                 "get_user_input",
                 "get_user_choice", 
@@ -2973,9 +3087,13 @@ async def health_check() -> Dict[str, Any]:
 # Main execution
 
 def main():
+    if "--telegram-hub" in sys.argv:
+        raise SystemExit(run_shared_hub_from_argv(sys.argv[1:]))
+
     print("Starting Human-in-the-Loop MCP Server...")
     print("This server provides tools for LLMs to interact with humans through GUI dialogs.")
     print(f"Platform: {CURRENT_PLATFORM} ({platform.system()} {platform.release()})")
+    print(f"Telegram shared mode: {get_shared_telegram_mode()}")
     print("")
     print("Available tools:")
     print("get_user_input - Get text/number input from user")

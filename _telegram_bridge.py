@@ -29,6 +29,15 @@ import time
 import threading
 from typing import Optional
 
+from _telegram_shared_hub import (
+    SharedTelegramHubClient,
+    detect_unsafe_direct_polling,
+    ensure_shared_telegram_hub,
+    is_shared_telegram_enabled,
+    is_telegram_configured as shared_is_telegram_configured,
+    load_telegram_credentials,
+)
+
 try:
     import requests
 except ImportError:
@@ -48,36 +57,27 @@ class TelegramBridge:
                 "Install it with: pip install requests"
             )
 
-        bot_token: Optional[str] = None
-        chat_id: Optional[str] = None
-
-        # Source 1: config file (preferred)
-        config_path = config_path or _DEFAULT_CONFIG
-        if os.path.isfile(config_path):
-            try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                bot_token = data.get("bot_token")
-                chat_id = data.get("chat_id")
-            except Exception as exc:
-                print(f"[TelegramBridge] Failed to read {config_path}: {exc}")
-
-        # Source 2: environment variables (fallback)
-        if not bot_token:
-            bot_token = os.environ.get("TELEGRAM_BOT_TOKEN")
-        if not chat_id:
-            chat_id = os.environ.get("TELEGRAM_CHAT_ID")
-
-        if not bot_token or not chat_id:
+        # Resolve credentials through the shared helper so the bridge and hub
+        # always agree on the same bot/chat scope and runtime paths.
+        credentials = load_telegram_credentials(config_path=config_path or _DEFAULT_CONFIG)
+        if credentials is None:
             raise FileNotFoundError(
                 "Telegram credentials not found. Provide either:\n"
                 "  1. telegram_config.json with keys: bot_token, chat_id\n"
                 "  2. Environment variables: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID"
             )
 
-        self.bot_token: str = bot_token
-        self.chat_id: str = str(chat_id)
+        self.bot_token: str = credentials.bot_token
+        self.chat_id: str = str(credentials.chat_id)
         self._update_offset: Optional[int] = None
+        self._shared_hub_client: Optional[SharedTelegramHubClient] = None
+
+        # Shared mode must never fall back to local getUpdates polling, because
+        # the hub is the sole safe owner for a same-host bot/chat scope.
+        if is_shared_telegram_enabled():
+            self._shared_hub_client = ensure_shared_telegram_hub(credentials=credentials)
+        else:
+            detect_unsafe_direct_polling(credentials)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -258,6 +258,24 @@ class TelegramBridge:
         """
         import queue as _queue_mod
 
+        # Shared mode keeps Mini App answers local, but routes plain Telegram
+        # replies through the host-local hub instead of getUpdates polling here.
+        if self._shared_hub_client is not None:
+            while not cancel_event.is_set():
+                if answer_queue is not None:
+                    try:
+                        return answer_queue.get_nowait()
+                    except _queue_mod.Empty:
+                        pass
+                reply = self._shared_hub_client.wait_for_reply(
+                    prompt_message_id,
+                    cancel_event,
+                    poll_interval=poll_interval,
+                )
+                if reply is not None:
+                    return reply
+            return None
+
         self.flush_updates()
 
         while not cancel_event.is_set():
@@ -328,6 +346,22 @@ class TelegramBridge:
                 time.sleep(poll_interval)
 
         return None
+
+    def complete_prompt_session(
+        self,
+        prompt_message_id: int,
+        *,
+        status: str,
+        source: Optional[str] = None,
+    ) -> None:
+        """Notify the shared hub that a prompt lifecycle finished locally."""
+        if self._shared_hub_client is None:
+            return
+        self._shared_hub_client.complete_prompt(
+            prompt_message_id,
+            status=status,
+            source=source,
+        )
 
     def edit_message(
         self,
@@ -525,6 +559,10 @@ class TelegramBridge:
 
     def flush_updates(self) -> None:
         """Consume all pending updates so we only see new messages."""
+        # In shared mode the host-local hub owns getUpdates, so local instances
+        # intentionally avoid touching Telegram polling state.
+        if self._shared_hub_client is not None:
+            return
         try:
             resp = requests.get(
                 self._api("getUpdates"),
@@ -550,6 +588,15 @@ class TelegramBridge:
         Uses Telegram long-polling (3 s server-side timeout per request).
         Returns the reply text, or ``None`` if cancelled / timed out.
         """
+        # Shared mode delegates inbound reply routing to the host-local hub so
+        # this process never competes for Telegram getUpdates ownership.
+        if self._shared_hub_client is not None:
+            return self._shared_hub_client.wait_for_reply(
+                prompt_message_id,
+                cancel_event,
+                poll_interval=poll_interval,
+            )
+
         self.flush_updates()
 
         while not cancel_event.is_set():
@@ -612,18 +659,4 @@ def is_telegram_configured() -> bool:
     1. ``telegram_config.json`` file (same directory as this script)
     2. Environment variables ``TELEGRAM_BOT_TOKEN`` and ``TELEGRAM_CHAT_ID``
     """
-    # Source 1: config file
-    try:
-        if os.path.isfile(_DEFAULT_CONFIG):
-            with open(_DEFAULT_CONFIG, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            if bool(data.get("bot_token")) and bool(data.get("chat_id")):
-                return True
-    except Exception as exc:
-        print(f"[TelegramBridge] telegram_config.json check failed: {exc}")
-
-    # Source 2: environment variables
-    if os.environ.get("TELEGRAM_BOT_TOKEN") and os.environ.get("TELEGRAM_CHAT_ID"):
-        return True
-
-    return False
+    return shared_is_telegram_configured(_DEFAULT_CONFIG)
