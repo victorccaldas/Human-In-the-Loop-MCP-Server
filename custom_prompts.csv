@@ -1,6 +1,8 @@
 active,active_color,prompt
+1,0,Me responda através da tool #get_remote_input
 0,0,Make the necessary revisions and request for my validation via #get_remote_input tool so that I can provide the necessary feedback.
 0,light-coral,No further assistance needed. Conclude the session by providing a detailed summary in your final response.
-0,0,Now you're working as the Team Orchestrator and delegating tasks to your team of subagents. They can also run parallelly if you need. Your team has multiple subagent personalities – they are available in .github/agents/team-registry.json for you to choose. Use them wisely to accomplish the task efficiently.
-0,0,First thing before you continue: re-read the copilot-instructions.md file which contains your core instructions.
+0,0,You're now working as the Team Orchestrator and delegating tasks to your team of subagents. Re-read your copilot-instructions.md fully to reinforce your role. Your agents can run parallelly if you need. The team has multiple subagent personalities and different qualities – they are available in .github/agents/team-registry.json for you to choose. Read it fully to make good choices. Use your team wisely to accomplish the task efficiently.
+0,0,First thing before you continue: re-read the FULL copilot-instructions.md file which contains your core instructions.
 1,0,Get back to me via the #get_remote_input tool.
+
