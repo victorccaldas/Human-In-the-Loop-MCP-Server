@@ -27,6 +27,7 @@ Usage::
 import json
 import queue
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import List, Optional
 from urllib.parse import urlparse, parse_qs
@@ -85,7 +86,7 @@ class MiniAppHTTPServer:
 
     @property
     def answer_queue(self) -> queue.SimpleQueue:
-        """Queue that receives the user's submitted answer string."""
+        """Queue that receives the user's submitted answer payload."""
         return self._answer_queue
 
     @property
@@ -199,11 +200,18 @@ class MiniAppHTTPServer:
                     )
                     return
 
-                # Consume token and deliver answer
+                # Consume the token before enqueueing the answer so duplicate
+                # Mini App submits cannot overtake the first accepted payload.
                 with server_ref._lock:
                     server_ref._token_used = True
 
-                server_ref._answer_queue.put(answer)
+                server_ref._answer_queue.put(
+                    {
+                        "text": answer,
+                        "source": "telegram_miniapp",
+                        "received_at": time.monotonic_ns(),
+                    }
+                )
                 self._respond(200, "application/json", b'{"ok":true}')
 
             def do_OPTIONS(self):
