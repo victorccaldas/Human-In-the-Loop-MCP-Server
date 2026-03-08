@@ -106,6 +106,8 @@ class _PromptMailbox:
     event: threading.Event
     reply_text: Optional[str] = None
     reply_message_id: Optional[int] = None
+    reply_source: Optional[str] = None
+    reply_received_at: Optional[int] = None
     completed: bool = False
     completion_status: Optional[str] = None
     updated_at: float = 0.0
@@ -414,6 +416,23 @@ class SharedTelegramHubClient:
         poll_interval: float = 0.3,
     ) -> Optional[str]:
         """Wait for a routed Telegram reply without using getUpdates locally."""
+        details = self.wait_for_reply_details(
+            prompt_message_id,
+            cancel_event,
+            poll_interval=poll_interval,
+        )
+        if details is None:
+            return None
+        return str(details.get("text") or "")
+
+    def wait_for_reply_details(
+        self,
+        prompt_message_id: int,
+        cancel_event: threading.Event,
+        *,
+        poll_interval: float = 0.3,
+    ) -> Optional[dict[str, Any]]:
+        """Wait for a routed reply and preserve source metadata for callers."""
         while not cancel_event.is_set():
             try:
                 response = requests.post(
@@ -428,7 +447,12 @@ class SharedTelegramHubClient:
                 payload = response.json()
                 status = payload.get("status")
                 if status == "reply":
-                    return payload.get("reply_text")
+                    return {
+                        "text": payload.get("reply_text") or "",
+                        "source": payload.get("source") or "telegram_reply",
+                        "received_at": payload.get("received_at"),
+                        "reply_message_id": payload.get("reply_message_id"),
+                    }
                 if status == "completed":
                     return None
             except Exception as exc:
@@ -618,6 +642,24 @@ class SharedTelegramHubService:
         except Exception as exc:
             self._log(f"send_text failed: {exc}")
 
+    def _react_to_message(self, message_id: int, emoji: str = "👍") -> bool:
+        """Apply the shared-mode visual ack for an accepted direct reply."""
+        try:
+            response = requests.post(
+                self._api("setMessageReaction"),
+                json={
+                    "chat_id": self.credentials.chat_id,
+                    "message_id": int(message_id),
+                    "reaction": [{"type": "emoji", "emoji": emoji}],
+                    "is_big": False,
+                },
+                timeout=10,
+            )
+            return response.status_code == 200
+        except Exception as exc:
+            self._log(f"react_to_message failed: {exc}")
+            return False
+
     def _set_my_commands(self) -> None:
         """Register the Telegram command menu from the sole polling owner."""
         if self._commands_registered:
@@ -709,19 +751,29 @@ class SharedTelegramHubService:
 
         self._send_text("Usage: /bypass on [minutes] | /bypass off | /bypass")
 
-    def submit_reply(self, prompt_message_id: int, reply_text: str, reply_message_id: Optional[int] = None) -> None:
-        """Store a Telegram reply and wake any waiting instance pollers."""
+    def submit_reply(
+        self,
+        prompt_message_id: int,
+        reply_text: str,
+        reply_message_id: Optional[int] = None,
+        *,
+        source: str = "telegram_reply",
+    ) -> bool:
+        """Store the first accepted Telegram reply and wake any waiting clients."""
         with self._mailboxes_lock:
             mailbox = self._mailboxes.setdefault(prompt_message_id, _PromptMailbox(event=threading.Event()))
             if mailbox.completed:
                 mailbox.updated_at = time.time()
-                return
+                return False
             mailbox.reply_text = reply_text
             mailbox.reply_message_id = reply_message_id
+            mailbox.reply_source = source
+            mailbox.reply_received_at = time.monotonic_ns()
             mailbox.completed = True
             mailbox.completion_status = "reply"
             mailbox.updated_at = time.time()
             mailbox.event.set()
+            return True
 
     def complete_prompt(self, prompt_message_id: int, status: str) -> None:
         """Mark a prompt as completed locally so late Telegram replies are ignored."""
@@ -751,6 +803,8 @@ class SharedTelegramHubService:
                     "status": "reply",
                     "reply_text": reply_text,
                     "reply_message_id": reply_message_id,
+                    "source": mailbox.reply_source or "telegram_reply",
+                    "received_at": mailbox.reply_received_at,
                 }
             return {
                 "status": "completed",
@@ -786,11 +840,16 @@ class SharedTelegramHubService:
         reply_to = message.get("reply_to_message") or {}
         prompt_message_id = reply_to.get("message_id")
         if isinstance(prompt_message_id, int):
-            self.submit_reply(
+            accepted = self.submit_reply(
                 prompt_message_id,
                 text,
                 reply_message_id=message.get("message_id"),
+                source="telegram_reply",
             )
+            if accepted:
+                reply_message_id = message.get("message_id")
+                if isinstance(reply_message_id, int):
+                    self._react_to_message(reply_message_id, "👍")
 
     def _poll_loop(self) -> None:
         """Own the Telegram getUpdates loop for this host-local bot/chat scope."""

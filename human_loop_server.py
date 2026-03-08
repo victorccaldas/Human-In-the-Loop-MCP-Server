@@ -2251,6 +2251,52 @@ def _build_miniapp_session(
         return None
 
 
+def _normalize_remote_answer_result(poll_result: Any) -> tuple[Optional[str], Optional[str]]:
+    """Normalize bridge poll results while preserving Mini App/direct labels."""
+    if poll_result is None:
+        return None, None
+    if isinstance(poll_result, dict):
+        text = poll_result.get("text")
+        if text is None:
+            return None, str(poll_result.get("source") or "telegram_reply")
+        return str(text), str(poll_result.get("source") or "telegram_reply")
+    return str(poll_result), "telegram_reply"
+
+
+def _is_remote_telegram_source(source: Optional[str]) -> bool:
+    """Return True when *source* came from any Telegram-backed channel."""
+    return bool(source and source.startswith("telegram"))
+
+
+def _is_remote_miniapp_source(source: Optional[str]) -> bool:
+    """Return True when *source* came from the Telegram Mini App path."""
+    return source in {"telegram_miniapp", "telegram_web_app_data"}
+
+
+def _get_remote_source_label(source: Optional[str]) -> str:
+    """Return a user-facing label that distinguishes Mini App vs direct reply."""
+    if _is_remote_miniapp_source(source):
+        return "Telegram Mini App"
+    if source in {"telegram_reply", "telegram"}:
+        return "Telegram reply"
+    return "Telegram"
+
+
+def _get_remote_completion_status(source: Optional[str], text: Optional[str]) -> str:
+    """Map normalized remote sources onto prompt-completion lifecycle states."""
+    if _is_remote_miniapp_source(source):
+        return "miniapp_reply"
+    if _is_remote_telegram_source(source):
+        return "telegram_reply"
+    if source == "tkinter" and text is not None:
+        return "local_reply"
+    if source == "tkinter" and text is None:
+        return "local_cancel"
+    if source == "transport":
+        return "transport_cancelled"
+    return "timeout"
+
+
 def create_remote_input_dialog(
     title: str,
     prompt: str,
@@ -2337,20 +2383,29 @@ def create_remote_input_dialog(
                     if _miniapp_session else None
                 )
 
-                if hasattr(_tg, "poll_for_answer"):
-                    _reply = _tg.poll_for_answer(
+                if hasattr(_tg, "poll_for_answer_details"):
+                    _poll_result = _tg.poll_for_answer_details(
+                        _msg_id, _cancel, answer_queue=_answer_queue
+                    )
+                elif hasattr(_tg, "poll_for_answer"):
+                    _poll_result = _tg.poll_for_answer(
                         _msg_id, _cancel, answer_queue=_answer_queue
                     )
                 else:
                     # Fallback for older TelegramBridge without poll_for_answer
-                    _reply = _tg.poll_for_reply(_msg_id, cancel_event=_cancel)
+                    _poll_result = _tg.poll_for_reply(_msg_id, cancel_event=_cancel)
+
+                _reply, _reply_source = _normalize_remote_answer_result(_poll_result)
 
                 # Explicitly complete the shared-hub prompt lifecycle so late
                 # Telegram replies are ignored once a headless request ends.
                 if hasattr(_tg, "complete_prompt_session"):
                     if _reply is not None:
-                        _completion_status = "telegram_reply"
-                        _completion_source = "telegram"
+                        _completion_status = _get_remote_completion_status(
+                            _reply_source,
+                            _reply,
+                        )
+                        _completion_source = _reply_source or "telegram_reply"
                     elif transport_cancel.is_set():
                         _completion_status = "transport_cancelled"
                         _completion_source = "transport"
@@ -2368,6 +2423,7 @@ def create_remote_input_dialog(
                 if _reply is not None:
                     _esc = _tg._escape_html
                     _display = (_reply or "")[:2000]
+                    _source_label = _get_remote_source_label(_reply_source)
                     _prompt_trunc = prompt[:3000]
                     if len(prompt) > 3000:
                         _prompt_trunc += "\n...(truncated)"
@@ -2375,7 +2431,7 @@ def create_remote_input_dialog(
                         f"\U0001f5a5\ufe0f <b>{_esc(title)}</b>\n\n"
                         f"Original message:\n"
                         f"<blockquote expandable>{_esc(_prompt_trunc)}</blockquote>\n\n"
-                        f"Response via Telegram:\n"
+                        f"Response via {_source_label}:\n"
                         f"<blockquote expandable>{_esc(_display)}</blockquote>"
                     )
                     try:
@@ -2421,7 +2477,7 @@ def create_remote_input_dialog(
 
         result_container: Dict[str, Any] = {
             "text": None,
-            "source": None,        # "tkinter" | "telegram" | None
+            "source": None,        # "tkinter" | "telegram_reply" | "telegram_miniapp" | ...
             "dialog": None,
         }
 
@@ -2612,14 +2668,25 @@ def create_remote_input_dialog(
             # Use poll_for_answer which handles Mini App queue, web_app_data,
             # and plain-text replies in a unified way.
             _answer_queue = miniapp_session.http_server.answer_queue if miniapp_session else None
-            if hasattr(tg_bridge, "poll_for_answer"):
-                reply = tg_bridge.poll_for_answer(tg_msg_id, tg_cancel, answer_queue=_answer_queue)
+            if hasattr(tg_bridge, "poll_for_answer_details"):
+                poll_result = tg_bridge.poll_for_answer_details(
+                    tg_msg_id,
+                    tg_cancel,
+                    answer_queue=_answer_queue,
+                )
+            elif hasattr(tg_bridge, "poll_for_answer"):
+                poll_result = tg_bridge.poll_for_answer(
+                    tg_msg_id,
+                    tg_cancel,
+                    answer_queue=_answer_queue,
+                )
             else:
                 # Fallback for older TelegramBridge instances without poll_for_answer
-                reply = tg_bridge.poll_for_reply(tg_msg_id, tg_cancel)
+                poll_result = tg_bridge.poll_for_reply(tg_msg_id, tg_cancel)
+            reply, reply_source = _normalize_remote_answer_result(poll_result)
             if reply is not None and not master_done.is_set():
                 result_container["text"] = reply
-                result_container["source"] = "telegram"
+                result_container["source"] = reply_source or "telegram_reply"
                 master_done.set()
 
                 # Close the tkinter dialog from the GUI thread
@@ -2636,8 +2703,9 @@ def create_remote_input_dialog(
                     try:
                         # Update Telegram indicator to show remote answer
                         if hasattr(dlg, '_tg_label'):
+                            source_label = _get_remote_source_label(reply_source)
                             dlg._tg_label.configure(
-                                text="\u2705  User answered via Telegram \u2014 closing\u2026",
+                                text=f"\u2705  User answered via {source_label} \u2014 closing\u2026",
                                 fg=dlg.theme_colors.get("success_color", "#137333"),
                             )
                         dlg.result = reply
@@ -2722,16 +2790,7 @@ def create_remote_input_dialog(
             # Notify the shared hub when a prompt lifecycle has finished so it
             # can discard local completions and avoid routing late replies.
             if hasattr(tg_bridge, "complete_prompt_session"):
-                if source == "telegram":
-                    completion_status = "telegram_reply"
-                elif source == "tkinter" and text is not None:
-                    completion_status = "local_reply"
-                elif source == "tkinter" and text is None:
-                    completion_status = "local_cancel"
-                elif source == "transport":
-                    completion_status = "transport_cancelled"
-                else:
-                    completion_status = "timeout"
+                completion_status = _get_remote_completion_status(source, text)
                 tg_bridge.complete_prompt_session(
                     tg_msg_id,
                     status=completion_status,
@@ -2740,7 +2799,7 @@ def create_remote_input_dialog(
 
             # Small delay when the reply came from Telegram — gives the API
             # time to fully process the reply before we edit the prompt message.
-            if source == "telegram":
+            if _is_remote_telegram_source(source):
                 time.sleep(0.5)
 
             # Truncate the original prompt and escape for HTML
@@ -2751,9 +2810,9 @@ def create_remote_input_dialog(
 
             # Build the edited message using HTML with expandable blockquotes so
             # both the original prompt and the user reply are collapsible.
-            if source == "telegram":
+            if _is_remote_telegram_source(source):
                 display_text = (text or "")[:2000]
-                status_label = "Response via Telegram"
+                status_label = f"Response via {_get_remote_source_label(source)}"
                 status_footer = (
                     f"{status_label}:\n"
                     f"<blockquote expandable>{_esc(display_text)}</blockquote>"

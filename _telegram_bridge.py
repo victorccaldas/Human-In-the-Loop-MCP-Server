@@ -25,9 +25,9 @@ for a config file.
 
 import json
 import os
-import time
 import threading
-from typing import Optional
+import time
+from typing import Any, Optional
 
 from _telegram_shared_hub import (
     SharedTelegramHubClient,
@@ -228,6 +228,73 @@ class TelegramBridge:
         answer_queue=None,
         poll_interval: float = 1.5,
     ) -> Optional[str]:
+        """Compatibility wrapper that returns only the accepted answer text."""
+        details = self.poll_for_answer_details(
+            prompt_message_id,
+            cancel_event,
+            answer_queue=answer_queue,
+            poll_interval=poll_interval,
+        )
+        if details is None:
+            return None
+        return str(details.get("text") or "")
+
+    @staticmethod
+    def _normalize_answer_payload(
+        payload: Any,
+        *,
+        default_source: str,
+    ) -> Optional[dict[str, Any]]:
+        """Normalize Mini App and Telegram answers into one comparable shape."""
+        if payload is None:
+            return None
+
+        if isinstance(payload, dict):
+            text = payload.get("text", payload.get("answer"))
+            if text is None:
+                return None
+            received_at = payload.get("received_at")
+            try:
+                received_at_value = int(received_at)
+            except (TypeError, ValueError):
+                received_at_value = time.monotonic_ns()
+            return {
+                "text": str(text),
+                "source": str(payload.get("source") or default_source),
+                "received_at": received_at_value,
+            }
+
+        return {
+            "text": str(payload),
+            "source": default_source,
+            "received_at": time.monotonic_ns(),
+        }
+
+    @classmethod
+    def _pick_first_answer(
+        cls,
+        first_candidate: Optional[dict[str, Any]],
+        second_candidate: Optional[dict[str, Any]],
+    ) -> Optional[dict[str, Any]]:
+        """Choose the earliest accepted answer, preferring Mini App on ties."""
+        if first_candidate is None:
+            return second_candidate
+        if second_candidate is None:
+            return first_candidate
+
+        first_received = int(first_candidate.get("received_at") or 0)
+        second_received = int(second_candidate.get("received_at") or 0)
+        if first_received <= second_received:
+            return first_candidate
+        return second_candidate
+
+    def poll_for_answer_details(
+        self,
+        prompt_message_id: int,
+        cancel_event: threading.Event,
+        answer_queue=None,
+        poll_interval: float = 1.5,
+    ) -> Optional[dict[str, Any]]:
         """Block until an answer arrives from any channel, or *cancel_event* is set.
 
         Checks three sources in priority order on each loop iteration:
@@ -253,27 +320,78 @@ class TelegramBridge:
 
         Returns
         -------
-        str or None
-            The answer text, or ``None`` if cancelled.
+        dict or None
+            The accepted answer payload, including the answer text and source.
         """
         import queue as _queue_mod
 
         # Shared mode keeps Mini App answers local, but routes plain Telegram
         # replies through the host-local hub instead of getUpdates polling here.
         if self._shared_hub_client is not None:
-            while not cancel_event.is_set():
-                if answer_queue is not None:
-                    try:
-                        return answer_queue.get_nowait()
-                    except _queue_mod.Empty:
-                        pass
-                reply = self._shared_hub_client.wait_for_reply(
+            if answer_queue is None:
+                return self._shared_hub_client.wait_for_reply_details(
                     prompt_message_id,
                     cancel_event,
                     poll_interval=poll_interval,
                 )
-                if reply is not None:
-                    return reply
+
+            # Run the hub wait concurrently so local Mini App submissions can
+            # still win even while the shared hub is long-polling Telegram.
+            hub_cancel = threading.Event()
+            hub_result: dict[str, Any] = {}
+            hub_done = threading.Event()
+
+            def _mirror_cancel() -> None:
+                cancel_event.wait()
+                hub_cancel.set()
+
+            def _wait_for_hub_reply() -> None:
+                result = self._shared_hub_client.wait_for_reply_details(
+                    prompt_message_id,
+                    hub_cancel,
+                    poll_interval=poll_interval,
+                )
+                if result is not None:
+                    hub_result["value"] = result
+                hub_done.set()
+
+            threading.Thread(
+                target=_mirror_cancel,
+                daemon=True,
+                name="telegram-bridge-shared-cancel-mirror",
+            ).start()
+            threading.Thread(
+                target=_wait_for_hub_reply,
+                daemon=True,
+                name="telegram-bridge-shared-hub-wait",
+            ).start()
+
+            while not cancel_event.is_set():
+                local_answer = None
+                try:
+                    local_answer = self._normalize_answer_payload(
+                        answer_queue.get_nowait(),
+                        default_source="telegram_miniapp",
+                    )
+                except _queue_mod.Empty:
+                    pass
+
+                remote_answer = None
+                if hub_done.is_set():
+                    remote_answer = self._normalize_answer_payload(
+                        hub_result.get("value"),
+                        default_source="telegram_reply",
+                    )
+
+                accepted_answer = self._pick_first_answer(local_answer, remote_answer)
+                if accepted_answer is not None:
+                    hub_cancel.set()
+                    return accepted_answer
+
+                if hub_done.is_set():
+                    return None
+
+                cancel_event.wait(timeout=min(max(poll_interval / 10.0, 0.05), 0.2))
             return None
 
         self.flush_updates()
@@ -282,7 +400,10 @@ class TelegramBridge:
             # ── 1. Check local HTTP-server queue (Mini App POST /submit) ──
             if answer_queue is not None:
                 try:
-                    return answer_queue.get_nowait()
+                    return self._normalize_answer_payload(
+                        answer_queue.get_nowait(),
+                        default_source="telegram_miniapp",
+                    )
                 except _queue_mod.Empty:
                     pass
 
@@ -317,7 +438,14 @@ class TelegramBridge:
                     # compatibility if the open mode is ever changed.
                     web_app_data = msg.get("web_app_data")
                     if web_app_data:
-                        answer = web_app_data.get("data", "")
+                        answer = self._normalize_answer_payload(
+                            {
+                                "text": web_app_data.get("data", ""),
+                                "source": "telegram_web_app_data",
+                                "received_at": time.monotonic_ns(),
+                            },
+                            default_source="telegram_web_app_data",
+                        )
                         try:
                             reply_id = msg.get("message_id")
                             if isinstance(reply_id, int):
@@ -335,7 +463,14 @@ class TelegramBridge:
                                 self.react_to_message(reply_id, "\U0001f44d")
                         except Exception:
                             pass
-                        return msg.get("text", "")
+                        return self._normalize_answer_payload(
+                            {
+                                "text": msg.get("text", ""),
+                                "source": "telegram_reply",
+                                "received_at": time.monotonic_ns(),
+                            },
+                            default_source="telegram_reply",
+                        )
 
             except Exception as exc:
                 if "timeout" not in str(exc).lower():
