@@ -1330,10 +1330,18 @@ def create_multiline_input_dialog(title: str, prompt: str, default_value: str = 
                 import threading as _threading
                 _cancel = _threading.Event()
                 _reply = _tg.poll_for_reply(_msg_id, cancel_event=_cancel)
+                if hasattr(_tg, "complete_prompt_session"):
+                    _tg.complete_prompt_session(
+                        _msg_id,
+                        status="telegram_reply" if _reply is not None else "timeout",
+                        source="telegram",
+                    )
                 if _reply is not None:
                     _tg.edit_message(_msg_id, f"\u2705 Response received.")
                 return _reply
             except Exception as _exc:
+                if is_shared_telegram_enabled():
+                    raise
                 print(f"[RemoteInput] Telegram-only mode error: {_exc}")
                 return None
         done = threading.Event()
@@ -2248,6 +2256,7 @@ def create_remote_input_dialog(
     prompt: str,
     default_value: str = "",
     name_or_role: str = "",
+    external_cancel: Optional[threading.Event] = None,
 ):
     """Create a multiline input dialog + Telegram prompt.
 
@@ -2264,6 +2273,10 @@ def create_remote_input_dialog(
     (identical to ``create_multiline_input_dialog``).
     """
     try:
+        # Allow the async MCP tool wrapper to signal that the transport was
+        # cancelled so this worker thread can stop polling and close UI state.
+        transport_cancel = external_cancel or threading.Event()
+
         root = _ensure_persistent_root()
         if root is None:
             # ── Headless (no display) — Telegram-only mode with MiniApp support ──
@@ -2307,6 +2320,18 @@ def create_remote_input_dialog(
                 import threading as _threading
                 _cancel = _threading.Event()
 
+                # Mirror transport cancellation into the blocking Telegram poller
+                # so headless runs can unwind when the MCP connection drops.
+                def _propagate_headless_cancel() -> None:
+                    transport_cancel.wait()
+                    _cancel.set()
+
+                _threading.Thread(
+                    target=_propagate_headless_cancel,
+                    daemon=True,
+                    name="remote-input-headless-cancel",
+                ).start()
+
                 _answer_queue = (
                     _miniapp_session.http_server.answer_queue
                     if _miniapp_session else None
@@ -2319,6 +2344,24 @@ def create_remote_input_dialog(
                 else:
                     # Fallback for older TelegramBridge without poll_for_answer
                     _reply = _tg.poll_for_reply(_msg_id, cancel_event=_cancel)
+
+                # Explicitly complete the shared-hub prompt lifecycle so late
+                # Telegram replies are ignored once a headless request ends.
+                if hasattr(_tg, "complete_prompt_session"):
+                    if _reply is not None:
+                        _completion_status = "telegram_reply"
+                        _completion_source = "telegram"
+                    elif transport_cancel.is_set():
+                        _completion_status = "transport_cancelled"
+                        _completion_source = "transport"
+                    else:
+                        _completion_status = "timeout"
+                        _completion_source = "telegram"
+                    _tg.complete_prompt_session(
+                        _msg_id,
+                        status=_completion_status,
+                        source=_completion_source,
+                    )
 
                 # Edit the Telegram message with final status (mirrors the
                 # cleanup logic from the full tkinter+Telegram path).
@@ -2419,6 +2462,8 @@ def create_remote_input_dialog(
                         tg_bridge = None
 
             except Exception as exc:
+                if is_shared_telegram_enabled():
+                    raise
                 print(f"[RemoteInput] Telegram init error: {exc} -- continuing with tkinter only")
                 if miniapp_session:
                     miniapp_session.stop()
@@ -2430,6 +2475,12 @@ def create_remote_input_dialog(
         # --- 2. Create tkinter dialog on the GUI thread ---
         def _create_on_gui():
             try:
+                # Skip late dialog creation if the MCP transport has already
+                # been cancelled while the request was queued for the GUI thread.
+                if transport_cancel.is_set() or master_done.is_set():
+                    tkinter_done.set()
+                    return
+
                 dlg = MultilineInputDialog(
                     root, title, prompt, default_value, done_event=tkinter_done
                 )
@@ -2502,6 +2553,55 @@ def create_remote_input_dialog(
             except Exception as e:
                 print(f"[RemoteInput] Error creating dialog: {e}")
                 tkinter_done.set()
+
+        # Watch for upstream transport cancellation and close any open dialog
+        # from the GUI thread so executor cleanup stays bounded.
+        def _transport_cancel_monitor():
+            transport_cancel.wait()
+            if not transport_cancel.is_set() or master_done.is_set():
+                return
+
+            result_container["text"] = None
+            result_container["source"] = "transport"
+            master_done.set()
+            tg_cancel.set()
+
+            def _close_tkinter():
+                dlg = result_container.get("dialog")
+                if dlg is None:
+                    tkinter_done.set()
+                    return
+                try:
+                    if hasattr(dlg, '_reminder_id') and dlg._reminder_id is not None:
+                        dlg.dialog.after_cancel(dlg._reminder_id)
+                except Exception:
+                    pass
+                try:
+                    if hasattr(dlg, '_tg_label'):
+                        dlg._tg_label.configure(
+                            text="\u26a0\ufe0f  MCP request cancelled — closing…",
+                            fg=dlg.theme_colors.get("error_color", "#D93025"),
+                        )
+                except Exception:
+                    pass
+                try:
+                    dlg.result = None
+                    dlg.cancel_clicked()
+                except Exception as _exc:
+                    print(
+                        "[RemoteInput] Error closing dialog after transport cancellation: "
+                        f"{type(_exc).__name__}: {_exc}"
+                    )
+                    tkinter_done.set()
+
+            _dialog_request_queue.put(_close_tkinter)
+
+        transport_cancel_thread = threading.Thread(
+            target=_transport_cancel_monitor,
+            daemon=True,
+            name="remote-input-transport-cancel",
+        )
+        transport_cancel_thread.start()
 
         _dialog_request_queue.put(_create_on_gui)
 
@@ -2584,6 +2684,12 @@ def create_remote_input_dialog(
         if tg_cancel is not None:
             tg_cancel.set()  # ensure poller stops
 
+        # Give the auxiliary threads a brief chance to observe the shared
+        # completion state before this worker returns to the cancelled caller.
+        tg_thread.join(timeout=0.5)
+        tk_monitor.join(timeout=0.5)
+        transport_cancel_thread.join(timeout=0.5)
+
         # Stop Mini App session (HTTP server + tunnel) if one was active
         if miniapp_session is not None:
             try:
@@ -2612,6 +2718,25 @@ def create_remote_input_dialog(
             source = result_container.get("source")
             text   = result_container.get("text")
             _diag(f"source={source}, text_len={len(text) if text else 0}")
+
+            # Notify the shared hub when a prompt lifecycle has finished so it
+            # can discard local completions and avoid routing late replies.
+            if hasattr(tg_bridge, "complete_prompt_session"):
+                if source == "telegram":
+                    completion_status = "telegram_reply"
+                elif source == "tkinter" and text is not None:
+                    completion_status = "local_reply"
+                elif source == "tkinter" and text is None:
+                    completion_status = "local_cancel"
+                elif source == "transport":
+                    completion_status = "transport_cancelled"
+                else:
+                    completion_status = "timeout"
+                tg_bridge.complete_prompt_session(
+                    tg_msg_id,
+                    status=completion_status,
+                    source=source,
+                )
 
             # Small delay when the reply came from Telegram — gives the API
             # time to fully process the reply before we edit the prompt message.
@@ -2643,6 +2768,9 @@ def create_remote_input_dialog(
             elif source == "tkinter" and text is None:
                 status_label = "Cancelled locally"
                 status_footer = f"\u274c {status_label}"
+            elif source == "transport":
+                status_label = "Request cancelled"
+                status_footer = "\u274c Request cancelled — MCP connection closed."
             else:
                 status_label = "Timed out"
                 status_footer = f"\u23f0 {status_label}"
@@ -3129,9 +3257,22 @@ def main():
     if _is_bypass_active():
         print("NOTICE: Bypass mode is ACTIVE (lock file found). All tool requests will be auto-approved.")
 
-    # Always start Telegram command poller if Telegram is configured,
-    # regardless of bypass state — so /bypass on can be received at any time.
+    # Shared mode must discover or auto-start the hub up front so every same-
+    # host instance converges on one getUpdates owner before any tool runs.
     if is_telegram_configured() and TelegramBridge is not None:
+        if is_shared_telegram_enabled():
+            try:
+                hub_client = ensure_shared_telegram_hub()
+                print(
+                    "Shared Telegram hub ready at "
+                    f"{hub_client.descriptor.base_url} for scope "
+                    f"{hub_client.descriptor.scope_key}."
+                )
+            except SharedTelegramHubError as exc:
+                print(f"ERROR: {exc}")
+                raise
+        else:
+            detect_unsafe_direct_polling(load_telegram_credentials())
         _start_command_poller()
 
     print("Starting MCP server...")
