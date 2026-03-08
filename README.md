@@ -32,6 +32,7 @@ A powerful **Model Context Protocol (MCP) Server** that enables AI assistants li
 - **Error Handling**: Comprehensive error reporting and graceful recovery
 - **Keyboard Navigation**: Full keyboard shortcuts support (Enter/Escape)
 - **Telegram Integration**: Optional remote answering via Telegram Bot API (entangled with local dialog)
+- **Shared Telegram Hub**: Optional same-host mode where one host-local hub safely owns `getUpdates` for multiple MCP server instances
 
 ## 📦 Installation & Setup
 
@@ -352,11 +353,13 @@ The `get_remote_input` tool optionally supports answering prompts from Telegram.
    ```json
    {
      "env": {
-       "TELEGRAM_BOT_TOKEN": "YOUR_BOT_TOKEN",
-       "TELEGRAM_CHAT_ID": "YOUR_CHAT_ID"
+      "TELEGRAM_BOT_TOKEN": "YOUR_BOT_TOKEN",
+      "TELEGRAM_CHAT_ID": "YOUR_CHAT_ID"
      }
    }
    ```
+
+4. **Same-host shared mode is the default** — when multiple HITL-MCP servers on the same host share the same bot/chat, no extra setting is required. The default mode is `auto`, so the server starts or reuses a host-local Telegram hub and keeps a single `getUpdates` owner per bot/chat scope. Set `HITL_SHARED_TELEGRAM_MODE=require` to fail fast when that hub cannot be discovered or started, or set `HITL_SHARED_TELEGRAM_MODE=off` to force the legacy direct-polling behavior.
 
 ### How It Works
 
@@ -367,6 +370,27 @@ The `get_remote_input` tool optionally supports answering prompts from Telegram.
    - **Reply on tkinter** → the Telegram message is edited to show it's no longer active.
 4. When a Telegram reply is received, the server reacts to that reply message with a ✅ for immediate visual acknowledgement.
 5. The Telegram prompt message is updated with the final status (✅ answered, ❌ cancelled, ⏰ timed out).
+
+### Shared Telegram Hub Mode (same host, same bot/chat)
+
+By default, `HITL_SHARED_TELEGRAM_MODE` resolves to `auto`. Both `auto` and `require` change how inbound Telegram traffic works:
+
+1. A **host-local hub** is auto-discovered or auto-started on `127.0.0.1`.
+2. The hub becomes the **only** owner of Telegram `getUpdates` for that bot/chat pair on the host.
+3. Normal MCP server instances still send Telegram prompt messages directly, but inbound plain-text replies and `/bypass` commands are routed through the hub.
+4. **Mini App submissions stay local/token-based** and do not depend on Telegram polling.
+5. Runtime state moves to a **host-global directory** shared by sibling worktrees:
+  - Windows: `%LOCALAPPDATA%\hitl-mcp-server\shared-telegram\<scope>`
+  - macOS: `~/Library/Application Support/hitl-mcp-server/shared-telegram/<scope>`
+  - Linux: `${XDG_STATE_HOME:-~/.local/state}/hitl-mcp-server/shared-telegram/<scope>`
+
+You can override the runtime root with `HITL_MCP_RUNTIME_DIR=/custom/path`.
+
+### Shared-Mode Safety Rules
+
+- If a shared hub is already active for the same bot/chat and another instance tries legacy direct polling, the server now raises a clear **unsafe mixed polling state** error instead of silently competing for `getUpdates`.
+- `HITL_SHARED_TELEGRAM_MODE=require` is the strictest option: startup fails if the host-local hub cannot be discovered or started.
+- Set `HITL_SHARED_TELEGRAM_MODE=off` to preserve the legacy single-instance direct-polling behavior.
 
 ### Notes
 
