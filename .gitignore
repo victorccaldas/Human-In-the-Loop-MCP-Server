@@ -6,3 +6,4 @@ telegram_config.json
 _remote_input_diag.log
 bypass_active.lock
 bypass_log.jsonl
+/tests/__pycache__

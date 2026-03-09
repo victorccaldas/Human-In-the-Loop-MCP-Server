@@ -8,6 +8,7 @@ only one process consumes updates for a given bot/chat pair on the host.
 
 from __future__ import annotations
 
+import atexit
 import contextlib
 import hashlib
 import importlib.util
@@ -15,6 +16,7 @@ import json
 import os
 import platform
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -37,6 +39,23 @@ _DEFAULT_CONFIG = os.path.join(_SCRIPT_DIR, "telegram_config.json")
 _HUB_HOST = "127.0.0.1"
 _HUB_VERSION = 1
 _DEFAULT_WAIT_TIMEOUT_SECONDS = 5.0
+
+# ── Lifecycle management constants ──────────────────────────────────────────
+# Hub auto-terminates when no MCP clients are connected after a grace period.
+_HEARTBEAT_INTERVAL_SECONDS = 30.0    # Client sends heartbeat every 30s
+_HEARTBEAT_STALE_SECONDS = 60.0       # 2 missed heartbeats = stale
+_IDLE_SHUTDOWN_SECONDS = 15.0         # Grace period after last client gone
+_STARTUP_GRACE_SECONDS = 60.0         # Don't check idle within first 60s
+_CLIENT_MONITOR_INTERVAL = 10.0       # Check client liveness every 10s
+
+# ── Client-side heartbeat state ─────────────────────────────────────────────
+# Tracks the background heartbeat thread that keeps this process registered
+# with the shared hub so the hub's idle-shutdown monitor counts us as alive.
+_heartbeat_thread: Optional[threading.Thread] = None
+_heartbeat_stop: Optional[threading.Event] = None
+_heartbeat_lock = threading.Lock()
+_active_heartbeat_descriptor_url: Optional[str] = None
+
 _SHARED_MODE_ENV = "HITL_SHARED_TELEGRAM_MODE"
 _RUNTIME_DIR_ENV = "HITL_MCP_RUNTIME_DIR"
 _AUTO_MESSAGES_CONFIG_ENV = "HITL_MCP_AUTO_MESSAGES_CONFIG"
@@ -86,6 +105,7 @@ class RuntimePaths:
     bypass_lock_path: str
     bypass_log_path: str
     hub_log_path: str
+    poll_lock_path: str
 
 
 @dataclass(frozen=True)
@@ -474,6 +494,7 @@ def get_runtime_paths(credentials: Optional[TelegramCredentials] = None) -> Runt
         bypass_lock_path=os.path.join(scope_dir, "bypass_active.lock"),
         bypass_log_path=os.path.join(scope_dir, "bypass_log.jsonl"),
         hub_log_path=os.path.join(scope_dir, "hub.log"),
+        poll_lock_path=os.path.join(scope_dir, "poll-owner.lock"),
     )
 
 
@@ -647,6 +668,86 @@ def _release_startup_lock(lock_path: str) -> None:
     _remove_file_safely(lock_path)
 
 
+def _is_pid_alive_standalone(pid: int) -> bool:
+    """Check if a process with given PID is still running (module-level)."""
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # Process exists but we lack permission
+    except OSError:
+        return False
+
+
+def _kill_process(pid: int, log_fn=print) -> bool:
+    """Attempt to terminate a process by PID. Returns True if process is dead after attempt."""
+    log_fn(f"Attempting to kill competing process PID {pid}")
+    try:
+        if platform.system() == "Windows":
+            result = subprocess.run(
+                ["taskkill", "/F", "/PID", str(pid)],
+                capture_output=True, text=True, timeout=5,
+            )
+            log_fn(f"taskkill result: returncode={result.returncode}, stdout={result.stdout.strip()}")
+        else:
+            os.kill(pid, signal.SIGTERM)
+            log_fn(f"Sent SIGTERM to PID {pid}")
+    except Exception as exc:
+        log_fn(f"Failed to kill PID {pid}: {exc}")
+        return False
+    # Wait up to 3 seconds for process to die
+    for _ in range(30):
+        if not _is_pid_alive_standalone(pid):
+            log_fn(f"Process PID {pid} confirmed dead")
+            return True
+        time.sleep(0.1)
+    log_fn(f"Process PID {pid} still alive after kill attempt")
+    return False
+
+
+def _acquire_poll_lock(lock_path: str, log_fn=print) -> bool:
+    """Acquire an exclusive polling lock. Kills stale owners if necessary."""
+    my_pid = os.getpid()
+    if os.path.isfile(lock_path):
+        try:
+            with open(lock_path, "r", encoding="utf-8") as f:
+                existing_pid = int(f.read().strip())
+        except (ValueError, OSError):
+            existing_pid = None
+        if existing_pid is not None and existing_pid != my_pid:
+            if _is_pid_alive_standalone(existing_pid):
+                log_fn(f"Poll lock held by live process PID {existing_pid} \u2014 attempting to kill")
+                killed = _kill_process(existing_pid, log_fn)
+                if not killed:
+                    log_fn(f"FATAL: Could not kill competing process PID {existing_pid}")
+                    return False
+            else:
+                log_fn(f"Poll lock held by dead process PID {existing_pid} \u2014 stealing lock")
+    # Write our PID
+    try:
+        with open(lock_path, "w", encoding="utf-8") as f:
+            f.write(f"{my_pid}\n")
+        log_fn(f"Poll lock acquired (PID {my_pid})")
+        return True
+    except OSError as exc:
+        log_fn(f"Failed to write poll lock: {exc}")
+        return False
+
+
+def _release_poll_lock(lock_path: str) -> None:
+    """Release the polling lock only if we own it."""
+    try:
+        if os.path.isfile(lock_path):
+            with open(lock_path, "r", encoding="utf-8") as f:
+                owner_pid = int(f.read().strip())
+            if owner_pid == os.getpid():
+                _remove_file_safely(lock_path)
+    except (ValueError, OSError):
+        _remove_file_safely(lock_path)  # Corrupt lock file \u2014 clean up
+
+
 def _resolve_hub_launch_command(
     launcher_script: Optional[str],
 ) -> tuple[list[str], Optional[str]]:
@@ -792,11 +893,80 @@ class SharedTelegramHubClient:
         return response.json()
 
 
+# ── Client-side heartbeat & deregistration ──────────────────────────────────
+# These module-level functions run in the MCP client process (not the hub) and
+# keep the hub informed that this process is still alive.  The hub uses the
+# heartbeat signal to avoid idle shutdown while at least one client is active.
+
+def _client_heartbeat_loop(base_url: str, stop_event: threading.Event) -> None:
+    """Send periodic heartbeats to the shared hub."""
+    while not stop_event.is_set():
+        try:
+            requests.post(
+                f"{base_url}/heartbeat",
+                json={"pid": os.getpid()},
+                timeout=5,
+            )
+        except Exception:
+            pass  # Hub may be temporarily unreachable; next beat will retry
+        stop_event.wait(timeout=_HEARTBEAT_INTERVAL_SECONDS)
+
+
+def _start_client_heartbeat(base_url: str) -> None:
+    """Start the heartbeat daemon thread (idempotent, URL-aware)."""
+    global _heartbeat_thread, _heartbeat_stop, _active_heartbeat_descriptor_url
+    with _heartbeat_lock:
+        if _heartbeat_thread is not None and _heartbeat_thread.is_alive():
+            if _active_heartbeat_descriptor_url == base_url:
+                return  # Same hub, already running
+            # Hub changed (e.g., restarted on different port) — stop old heartbeat
+            if _heartbeat_stop is not None:
+                _heartbeat_stop.set()
+        _heartbeat_stop = threading.Event()
+        _active_heartbeat_descriptor_url = base_url
+        _heartbeat_thread = threading.Thread(
+            target=_client_heartbeat_loop,
+            args=(base_url, _heartbeat_stop),
+            daemon=True,
+            name="hub-client-heartbeat",
+        )
+        _heartbeat_thread.start()
+
+
+def _stop_client_heartbeat() -> None:
+    """Stop the heartbeat daemon thread."""
+    global _heartbeat_thread, _heartbeat_stop, _active_heartbeat_descriptor_url
+    with _heartbeat_lock:
+        if _heartbeat_stop is not None:
+            _heartbeat_stop.set()
+        _heartbeat_thread = None
+        _heartbeat_stop = None
+        _active_heartbeat_descriptor_url = None
+
+
+def _atexit_deregister() -> None:
+    """Best-effort deregistration on process exit."""
+    url = _active_heartbeat_descriptor_url
+    if url:
+        try:
+            requests.post(
+                f"{url}/deregister",
+                json={"pid": os.getpid()},
+                timeout=3,
+            )
+        except Exception:
+            pass
+    _stop_client_heartbeat()
+
+
+atexit.register(_atexit_deregister)
+
+
 def ensure_shared_telegram_hub(
     *,
     credentials: Optional[TelegramCredentials] = None,
     launcher_script: Optional[str] = None,
-    startup_timeout: float = 8.0,
+    startup_timeout: float = 60.0,
 ) -> SharedTelegramHubClient:
     """Discover or auto-start the shared hub for the current bot/chat scope."""
     creds = credentials or load_telegram_credentials()
@@ -808,7 +978,9 @@ def ensure_shared_telegram_hub(
 
     existing = find_running_hub_descriptor(creds)
     if existing is not None:
-        return SharedTelegramHubClient(existing)
+        client = SharedTelegramHubClient(existing)
+        _start_client_heartbeat(client._descriptor.base_url)
+        return client
 
     paths = get_runtime_paths(creds)
     launch_command, launch_cwd = _resolve_hub_launch_command(launcher_script)
@@ -823,7 +995,9 @@ def ensure_shared_telegram_hub(
             while time.time() < deadline:
                 descriptor = find_running_hub_descriptor(creds)
                 if descriptor is not None:
-                    return SharedTelegramHubClient(descriptor)
+                    client = SharedTelegramHubClient(descriptor)
+                    _start_client_heartbeat(client._descriptor.base_url)
+                    return client
                 time.sleep(0.2)
         finally:
             _release_startup_lock(paths.startup_lock_path)
@@ -831,7 +1005,9 @@ def ensure_shared_telegram_hub(
     while time.time() < deadline:
         descriptor = find_running_hub_descriptor(creds)
         if descriptor is not None:
-            return SharedTelegramHubClient(descriptor)
+            client = SharedTelegramHubClient(descriptor)
+            _start_client_heartbeat(client._descriptor.base_url)
+            return client
         time.sleep(0.2)
 
     raise SharedTelegramHubError(
@@ -906,6 +1082,15 @@ class SharedTelegramHubService:
         self._mailboxes: dict[int, _PromptMailbox] = {}
         self._mailboxes_lock = threading.Lock()
 
+        # ── Client lifecycle tracking ──────────────────────────────────────
+        # Tracks connected MCP clients via heartbeats + PID monitoring.
+        # Hub self-terminates when no active clients remain after a grace period.
+        self._registered_clients: dict[int, float] = {}  # pid -> last_heartbeat_time
+        self._registered_clients_lock = threading.Lock()
+        self._client_monitor_thread: Optional[threading.Thread] = None
+        self._idle_since: Optional[float] = None
+        self._startup_time: float = time.time()
+
     def _api(self, method: str) -> str:
         """Return the Telegram Bot API endpoint URL."""
         return f"https://api.telegram.org/bot{self.credentials.bot_token}/{method}"
@@ -917,6 +1102,61 @@ class SharedTelegramHubService:
                 handle.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
         except Exception:
             pass
+
+    # ── Client lifecycle methods ───────────────────────────────────────────
+
+    @staticmethod
+    def _is_pid_alive(pid: int) -> bool:
+        """Check if a process with given PID is still running."""
+        return _is_pid_alive_standalone(pid)
+
+    def _register_heartbeat(self, pid: int) -> None:
+        """Register or refresh a client heartbeat."""
+        with self._registered_clients_lock:
+            is_new = pid not in self._registered_clients
+            self._registered_clients[pid] = time.time()
+            self._idle_since = None
+        if is_new:
+            self._log(f"Client registered: PID {pid} (total: {len(self._registered_clients)})")
+
+    def _deregister_client(self, pid: int) -> None:
+        """Remove a client from the registry."""
+        with self._registered_clients_lock:
+            removed = self._registered_clients.pop(pid, None)
+        if removed is not None:
+            self._log(f"Client deregistered: PID {pid} (remaining: {len(self._registered_clients)})")
+
+    def _client_monitor_loop(self) -> None:
+        """Background thread: prune dead clients and trigger idle shutdown."""
+        while not self._stop_event.is_set():
+            self._stop_event.wait(timeout=_CLIENT_MONITOR_INTERVAL)
+            if self._stop_event.is_set():
+                break
+            now = time.time()
+            removed = []
+            with self._registered_clients_lock:
+                for pid, last_hb in list(self._registered_clients.items()):
+                    if not self._is_pid_alive(pid):
+                        removed.append((pid, "dead"))
+                        del self._registered_clients[pid]
+                    elif now - last_hb > _HEARTBEAT_STALE_SECONDS:
+                        removed.append((pid, "stale"))
+                        del self._registered_clients[pid]
+                active_count = len(self._registered_clients)
+            for pid, reason in removed:
+                self._log(f"Client removed ({reason}): PID {pid}")
+            # Idle shutdown logic — only activate after startup grace period
+            if active_count == 0 and (now - self._startup_time) >= _STARTUP_GRACE_SECONDS:
+                if self._idle_since is None:
+                    self._idle_since = now
+                    self._log(f"No active clients. Idle shutdown in {_IDLE_SHUTDOWN_SECONDS}s...")
+                elif now - self._idle_since >= _IDLE_SHUTDOWN_SECONDS:
+                    self._log("Idle shutdown triggered \u2014 no active clients.")
+                    self._stop_event.set()
+            else:
+                if self._idle_since is not None:
+                    self._idle_since = None
+                    self._log("Idle shutdown cancelled \u2014 client activity detected.")
 
     def descriptor(self) -> SharedHubDescriptor:
         """Return the current discovery descriptor for this running hub."""
@@ -948,17 +1188,70 @@ class SharedTelegramHubService:
         self._last_poll_error = None
         self._last_poll_success_at = _utc_now_iso()
 
+    def _resolve_409_conflict(self) -> None:
+        """Attempt to kill the process that is competing for getUpdates."""
+        killed_any = False
+        # Check the hub descriptor for the old hub's PID
+        descriptor = _read_descriptor(self.runtime_paths.descriptor_path)
+        if descriptor is not None and descriptor.pid != self.pid:
+            if _is_pid_alive_standalone(descriptor.pid):
+                self._log(f"Found competing hub in descriptor: PID {descriptor.pid}")
+                if _kill_process(descriptor.pid, self._log):
+                    killed_any = True
+        # Check the poll lock file for another PID
+        poll_lock = self.runtime_paths.poll_lock_path
+        if os.path.isfile(poll_lock):
+            try:
+                with open(poll_lock, "r", encoding="utf-8") as f:
+                    lock_pid = int(f.read().strip())
+                if lock_pid != self.pid and _is_pid_alive_standalone(lock_pid):
+                    self._log(f"Found competing process in poll lock: PID {lock_pid}")
+                    if _kill_process(lock_pid, self._log):
+                        killed_any = True
+            except (ValueError, OSError):
+                pass
+        if not killed_any:
+            self._log("No competing process found via descriptor or poll lock \u2014 409 may be from an external source")
+
     def _bootstrap_poller(self) -> bool:
-        """Claim Telegram polling ownership before the hub is considered ready."""
+        """Claim Telegram polling ownership before the hub is considered ready.
+
+        Phase 1: deleteWebhook to ensure clean polling mode.
+        Phase 2: getUpdates with 409-specific conflict resolution.
+        Phase 3: Normal success flow \u2014 set offset and mark ready.
+        """
         self._set_my_commands()
+        # Phase 1: Ensure webhook is cleared so getUpdates can work
+        try:
+            wh_resp = requests.post(self._api("deleteWebhook"), timeout=5)
+            if wh_resp.status_code == 200:
+                self._log("deleteWebhook succeeded (clean polling mode)")
+            else:
+                self._log(f"deleteWebhook returned HTTP {wh_resp.status_code} (non-fatal)")
+        except Exception as exc:
+            self._log(f"deleteWebhook failed (non-fatal): {exc}")
+        # Phase 2: Attempt getUpdates with 409 conflict handling
         try:
             response = requests.get(self._api("getUpdates"), params={"timeout": 0}, timeout=5)
+            if response.status_code == 409:
+                self._log("Bootstrap getUpdates got 409 Conflict \u2014 resolving competing process")
+                self._resolve_409_conflict()
+                time.sleep(2)
+                # Retry after killing competitor
+                response = requests.get(self._api("getUpdates"), params={"timeout": 0}, timeout=5)
+                if response.status_code == 409:
+                    self._record_poll_failure(
+                        "bootstrap getUpdates still 409 after conflict resolution",
+                        bootstrap=True,
+                    )
+                    return False
             if response.status_code != 200:
                 self._record_poll_failure(
                     f"bootstrap getUpdates returned HTTP {response.status_code}",
                     bootstrap=True,
                 )
                 return False
+            # Phase 3: Success \u2014 consume buffered updates and mark ready
             updates = response.json().get("result", [])
             if updates:
                 self._update_offset = updates[-1]["update_id"] + 1
@@ -988,6 +1281,8 @@ class SharedTelegramHubService:
             "poller_bootstrap_error": self._poller_bootstrap_error,
             "last_poll_error": self._last_poll_error,
             "last_poll_success_at": self._last_poll_success_at,
+            "active_clients": len(self._registered_clients),
+            "client_pids": list(self._registered_clients.keys()),
         }
 
     def _send_text(self, text: str) -> None:
@@ -1014,9 +1309,32 @@ class SharedTelegramHubService:
                 },
                 timeout=10,
             )
-            return response.status_code == 200
+            if response.status_code == 200:
+                return True
+            # Log non-200 responses for diagnostics (mirrors _telegram_bridge.py pattern)
+            self._log(f"react_to_message failed for msg_id={message_id}: "
+                       f"HTTP {response.status_code} - {response.text[:300]}")
+            return False
         except Exception as exc:
             self._log(f"react_to_message failed: {exc}")
+            return False
+
+    def _delete_message(self, message_id: int) -> bool:
+        """Delete a message from the chat (best-effort, used to suppress
+        pin-service notifications)."""
+        try:
+            response = requests.post(
+                self._api("deleteMessage"),
+                json={"chat_id": self.credentials.chat_id, "message_id": message_id},
+                timeout=5,
+            )
+            if response.status_code == 200:
+                return True
+            self._log(f"delete_message failed for msg_id={message_id}: "
+                       f"HTTP {response.status_code} - {response.text[:300]}")
+            return False
+        except Exception as exc:
+            self._log(f"delete_message exception for msg_id={message_id}: {exc}")
             return False
 
     def _set_my_commands(self) -> None:
@@ -1179,6 +1497,13 @@ class SharedTelegramHubService:
         if chat_id != self.credentials.chat_id:
             return
 
+        # Suppress pin-service notification messages (cosmetic cleanup)
+        if message.get("pinned_message"):
+            service_msg_id = message.get("message_id")
+            if isinstance(service_msg_id, int):
+                self._delete_message(service_msg_id)
+            return
+
         text = (message.get("text") or "").strip()
         if text.startswith("/bypass"):
             self._handle_bypass_command(text.lower())
@@ -1218,6 +1543,13 @@ class SharedTelegramHubService:
                 if self._update_offset is not None:
                     params["offset"] = self._update_offset
                 response = requests.get(self._api("getUpdates"), params=params, timeout=10)
+                if response.status_code == 409:
+                    self._record_poll_failure(
+                        "poll_loop getUpdates got 409 Conflict \u2014 will re-bootstrap"
+                    )
+                    self._poller_ready.clear()
+                    self._stop_event.wait(timeout=1.0)
+                    continue
                 if response.status_code != 200:
                     self._record_poll_failure(
                         f"poll_loop getUpdates returned HTTP {response.status_code}"
@@ -1278,6 +1610,18 @@ class SharedTelegramHubService:
             def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
                 try:
                     payload = self._read_json()
+                    if self.path == "/heartbeat":
+                        # Client lifecycle: register or refresh a heartbeat
+                        pid = int(payload["pid"])
+                        service._register_heartbeat(pid)
+                        self._write_json(200, {"ok": True})
+                        return
+                    if self.path == "/deregister":
+                        # Client lifecycle: remove a client from the registry
+                        pid = int(payload["pid"])
+                        service._deregister_client(pid)
+                        self._write_json(200, {"ok": True})
+                        return
                     if self.path == "/wait_for_reply":
                         prompt_message_id = int(payload["prompt_message_id"])
                         timeout_seconds = float(payload.get("timeout_seconds", _DEFAULT_WAIT_TIMEOUT_SECONDS))
@@ -1313,6 +1657,12 @@ class SharedTelegramHubService:
         self._write_descriptor()
 
         if self.start_poller:
+            # Acquire exclusive polling lock before starting the poller thread
+            acquired = _acquire_poll_lock(self.runtime_paths.poll_lock_path, self._log)
+            if not acquired:
+                self._log("FATAL: Could not acquire polling lock \u2014 another hub owns this bot token")
+                self._stop_event.set()
+                return
             self._poller_thread = threading.Thread(
                 target=self._poll_loop,
                 daemon=True,
@@ -1320,21 +1670,42 @@ class SharedTelegramHubService:
             )
             self._poller_thread.start()
 
+        # Launch the client lifecycle monitor that prunes dead/stale clients
+        # and triggers idle shutdown when no MCP clients remain connected.
+        self._client_monitor_thread = threading.Thread(
+            target=self._client_monitor_loop, daemon=True,
+            name="hub-client-monitor",
+        )
+        self._client_monitor_thread.start()
+
     def stop(self) -> None:
-        """Stop the HTTP server, polling thread, and descriptor publication."""
-        self._stop_event.set()
+        """Stop the HTTP server, polling thread, and descriptor publication.
 
-        if self._http_server is not None:
-            self._http_server.shutdown()
-            self._http_server.server_close()
-        if self._http_thread is not None and self._http_thread.is_alive():
-            self._http_thread.join(timeout=5)
-        if self._poller_thread is not None and self._poller_thread.is_alive():
-            self._poller_thread.join(timeout=5)
-
+        Shutdown order: remove descriptor first (prevent new clients from
+        discovering us), stop event, join poller, shutdown HTTP, join threads,
+        release poll lock.
+        """
+        # 1. Remove descriptor FIRST so no new clients discover this hub
         descriptor = _read_descriptor(self.runtime_paths.descriptor_path)
         if descriptor is not None and descriptor.pid == self.pid:
             _remove_file_safely(self.runtime_paths.descriptor_path)
+        # 2. Signal all threads to stop
+        self._stop_event.set()
+        # 3. Join poller thread
+        if self._poller_thread is not None and self._poller_thread.is_alive():
+            self._poller_thread.join(timeout=5)
+        # 4. Shutdown HTTP server
+        if self._http_server is not None:
+            self._http_server.shutdown()
+            self._http_server.server_close()
+        # 5. Join HTTP thread
+        if self._http_thread is not None and self._http_thread.is_alive():
+            self._http_thread.join(timeout=5)
+        # 6. Join client monitor thread
+        if self._client_monitor_thread and self._client_monitor_thread.is_alive():
+            self._client_monitor_thread.join(timeout=5)
+        # 7. Release poll lock
+        _release_poll_lock(self.runtime_paths.poll_lock_path)
 
 
 def run_shared_hub_from_argv(argv: Optional[list[str]] = None) -> int:
@@ -1358,9 +1729,13 @@ def run_shared_hub_from_argv(argv: Optional[list[str]] = None) -> int:
     service = SharedTelegramHubService(credentials, port=port or _find_free_port())
     service.start()
     try:
-        while True:
-            time.sleep(1.0)
+        # Wait until the stop event fires (idle shutdown or external signal).
+        # Replaces the old infinite sleep loop so the process can exit cleanly
+        # when the client monitor triggers an idle shutdown.
+        while not service._stop_event.is_set():
+            service._stop_event.wait(timeout=1.0)
     except KeyboardInterrupt:
         return 0
     finally:
         service.stop()
+        _release_poll_lock(service.runtime_paths.poll_lock_path)

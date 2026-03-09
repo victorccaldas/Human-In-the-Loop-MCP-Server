@@ -485,6 +485,16 @@ class TelegramBridge:
                     if str(msg.get("chat", {}).get("id")) != self.chat_id:
                         continue
 
+                    # Suppress pin-service notification messages
+                    if msg.get("pinned_message"):
+                        try:
+                            service_msg_id = msg.get("message_id")
+                            if isinstance(service_msg_id, int):
+                                self.delete_message(service_msg_id)
+                        except Exception:
+                            pass
+                        continue
+
                     # ── Path 2 (reserved): web_app_data from sendData() ──
                     # Note: sendData() only fires for ReplyKeyboard-opened Mini
                     # Apps.  Our InlineKeyboard Mini App uses POST /submit
@@ -812,6 +822,17 @@ class TelegramBridge:
                     # Must be from the configured personal chat
                     if str(msg.get("chat", {}).get("id")) != self.chat_id:
                         continue
+
+                    # Suppress pin-service notification messages
+                    if msg.get("pinned_message"):
+                        try:
+                            service_msg_id = msg.get("message_id")
+                            if isinstance(service_msg_id, int):
+                                self.delete_message(service_msg_id)
+                        except Exception:
+                            pass
+                        continue
+
                     # Must be a reply to our prompt message
                     reply_to = msg.get("reply_to_message")
                     if reply_to and reply_to.get("message_id") == prompt_message_id:

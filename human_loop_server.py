@@ -2391,6 +2391,32 @@ def create_remote_input_dialog(
             "unpinned": False,
         }
 
+        # -- Diagnostic logger (defined early so all code paths can use it) --
+        # Charmap-safe: writes UTF-8 to file, ASCII-only to stdout to avoid
+        # Windows encoding errors.
+        _diag_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_remote_input_diag.log")
+        def _diag(msg):
+            try:
+                with open(_diag_log, "a", encoding="utf-8") as f:
+                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+            except Exception:
+                pass
+            try:
+                safe = msg.encode("ascii", "replace").decode("ascii")
+                print(f"[RemoteInput] {safe}")
+            except Exception:
+                pass
+
+        # Diagnostic Point A: log Telegram availability at function entry
+        _shared_mode = get_shared_telegram_mode()
+        _diag(
+            f"create_remote_input_dialog() called. "
+            f"telegram_configured={is_telegram_configured()}, "
+            f"TelegramBridge={'available' if TelegramBridge is not None else 'None'}, "
+            f"shared_mode={_shared_mode}, "
+            f"title={title!r:.80}"
+        )
+
         def _best_effort_gui_prompt_cleanup() -> None:
             # Purpose: unexpected GUI-path exceptions must still release the
             # shared-hub prompt lifecycle and unpin the active Telegram prompt.
@@ -2622,6 +2648,22 @@ def create_remote_input_dialog(
             except Exception as exc:
                 if is_shared_telegram_enabled():
                     raise
+                # Diagnostic Point B: log detailed Telegram init failure context
+                _mode_attempted = get_shared_telegram_mode()
+                _hub_reachable = "unknown"
+                try:
+                    _hub_status = describe_shared_hub_status()
+                    _hub_reachable = str(_hub_status.get("hub_reachable", "N/A"))
+                except Exception:
+                    _hub_reachable = "status_check_failed"
+                _diag(
+                    f"Telegram init FAILED -- falling back to tkinter-only. "
+                    f"exception_type={type(exc).__name__}, "
+                    f"exception_msg={exc}, "
+                    f"mode_attempted={_mode_attempted}, "
+                    f"hub_reachable={_hub_reachable}, "
+                    f"miniapp_was_active={miniapp_session is not None}"
+                )
                 print(f"[RemoteInput] Telegram init error: {exc} -- continuing with tkinter only")
                 if miniapp_session:
                     miniapp_session.stop()
@@ -2629,6 +2671,14 @@ def create_remote_input_dialog(
                 tg_bridge = None
 
         telegram_active = tg_bridge is not None and tg_msg_id is not None
+
+        # Diagnostic Point C: log which channels are active after setup
+        _diag(
+            f"Dual-channel setup complete. "
+            f"telegram={telegram_active}, tkinter=True, "
+            f"tg_msg_id={tg_msg_id}, "
+            f"miniapp={'active' if miniapp_session else 'none'}"
+        )
 
         # --- 2. Create tkinter dialog on the GUI thread ---
         def _create_on_gui():
@@ -2867,20 +2917,8 @@ def create_remote_input_dialog(
             except Exception:
                 pass
 
-        # File-based diagnostic logger (charmap-safe: writes UTF-8 to file,
-        # ASCII-only to stdout to avoid Windows encoding errors).
-        _diag_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_remote_input_diag.log")
-        def _diag(msg):
-            try:
-                with open(_diag_log, "a", encoding="utf-8") as f:
-                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
-            except Exception:
-                pass
-            try:
-                safe = msg.encode("ascii", "replace").decode("ascii")
-                print(f"[RemoteInput] {safe}")
-            except Exception:
-                pass
+        # _diag() helper is defined at the top of this function (near
+        # prompt_cleanup_state) so all code paths can use it.
 
         _diag(f"Cleanup reached. tg_bridge={tg_bridge is not None}, tg_msg_id={tg_msg_id}")
 
