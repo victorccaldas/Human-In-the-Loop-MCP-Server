@@ -45,7 +45,8 @@ async def test_get_remote_input_cancellation_re_raises_and_signals_worker(monkey
     monkeypatch.setattr(server, "is_telegram_configured", lambda: False)
     monkeypatch.setattr(server, "create_remote_input_dialog", _fake_remote_input_dialog)
 
-    task = asyncio.create_task(server.get_remote_input("Title", "Prompt"))
+    # Access .fn to get the underlying async function from the FunctionTool wrapper
+    task = asyncio.create_task(server.get_remote_input.fn("Title", "Prompt"))
     await asyncio.to_thread(worker_started.wait, 1.0)
 
     task.cancel()
@@ -83,6 +84,7 @@ def test_create_remote_input_dialog_headless_transport_cancel_cleans_up(monkeypa
             observed["bridge"] = self
             self.complete_calls = []
             self.edit_calls = []
+            self.unpin_calls = []
 
         def send_prompt_with_miniapp(self, title, prompt, webapp_url, name_or_role=""):
             return 321
@@ -100,6 +102,10 @@ def test_create_remote_input_dialog_headless_transport_cancel_cleans_up(monkeypa
 
         def edit_message(self, message_id, new_text, parse_mode=None):
             self.edit_calls.append((message_id, new_text, parse_mode))
+            return True
+
+        def unpin_message(self, message_id):
+            self.unpin_calls.append(message_id)
             return True
 
         def _escape_html(self, text):
@@ -138,6 +144,7 @@ def test_create_remote_input_dialog_headless_transport_cancel_cleans_up(monkeypa
     assert observed["bridge"].edit_calls == [
         (321, "❌ Request cancelled — MCP connection closed.", None)
     ]
+    assert observed["bridge"].unpin_calls == [321]
 
 
 def test_create_remote_input_dialog_gui_transport_cancel_closes_dialog(monkeypatch):
@@ -198,3 +205,422 @@ def test_create_remote_input_dialog_gui_transport_cancel_closes_dialog(monkeypat
     assert result_holder["value"] is None
     assert observed["cancel_called"] is True
     assert observed["destroyed"] is True
+
+
+def test_create_remote_input_dialog_headless_preserves_miniapp_source_label(monkeypatch):
+    """Headless cleanup should distinguish Mini App answers from direct replies."""
+    observed = {}
+
+    class _FakeMiniAppSession:
+        def __init__(self):
+            self.webapp_url = "https://example.invalid/app"
+            self.stop_calls = 0
+            self.http_server = type(
+                "HttpServer",
+                (),
+                {"answer_queue": None},
+            )()
+
+        def stop(self):
+            self.stop_calls += 1
+
+    fake_session = _FakeMiniAppSession()
+
+    class _FakeTelegramBridge:
+        def __init__(self):
+            observed["bridge"] = self
+            self.complete_calls = []
+            self.edit_calls = []
+            self.unpin_calls = []
+
+        def send_prompt_with_miniapp(self, title, prompt, webapp_url, name_or_role=""):
+            return 654
+
+        def send_prompt(self, title, prompt):
+            return 654
+
+        def poll_for_answer_details(self, prompt_message_id, cancel_event, answer_queue=None):
+            return {
+                "text": "submitted from mini app",
+                "source": "telegram_miniapp",
+                "received_at": 123,
+            }
+
+        def complete_prompt_session(self, prompt_message_id, *, status, source=None):
+            self.complete_calls.append((prompt_message_id, status, source))
+
+        def edit_message(self, message_id, new_text, parse_mode=None):
+            self.edit_calls.append((message_id, new_text, parse_mode))
+            return True
+
+        def unpin_message(self, message_id):
+            self.unpin_calls.append(message_id)
+            return True
+
+        def _escape_html(self, text):
+            return text
+
+    monkeypatch.setattr(server, "_ensure_persistent_root", lambda: None)
+    monkeypatch.setattr(server, "is_telegram_configured", lambda: True)
+    monkeypatch.setattr(server, "TelegramBridge", _FakeTelegramBridge)
+    monkeypatch.setattr(server, "_get_multiline_input_custom_prompts", lambda: [])
+    monkeypatch.setattr(
+        server,
+        "_build_miniapp_session",
+        lambda *args, **kwargs: fake_session,
+    )
+
+    result = server.create_remote_input_dialog("Title", "Prompt")
+
+    assert result == "submitted from mini app"
+    assert fake_session.stop_calls == 1
+    assert observed["bridge"].complete_calls == [
+        (654, "miniapp_reply", "telegram_miniapp")
+    ]
+    assert observed["bridge"].edit_calls == [
+        (
+            654,
+            "🖥️ <b>Title</b>\n\nOriginal message:\n<blockquote expandable>Prompt</blockquote>\n\nResponse via Telegram Mini App:\n<blockquote expandable>submitted from mini app</blockquote>",
+            "HTML",
+        )
+    ]
+    assert observed["bridge"].unpin_calls == [654]
+
+
+def test_create_remote_input_dialog_gui_local_reply_unpins_prompt(monkeypatch):
+    """Local GUI answers should still unpin the Telegram prompt during cleanup."""
+    observed = {}
+
+    class _FakeLabel:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def grid(self, *args, **kwargs):
+            return None
+
+        def configure(self, *args, **kwargs):
+            return None
+
+    class _FakeDialogWindow:
+        def after_cancel(self, _reminder_id):
+            return None
+
+        def lift(self):
+            return None
+
+        def destroy(self):
+            return None
+
+    class _FakeMultilineInputDialog:
+        def __init__(self, parent, title, prompt, default_value="", done_event=None):
+            self.result = "answered locally"
+            self._done_event = done_event
+            self._reminder_id = None
+            self.dialog = _FakeDialogWindow()
+            self.main_frame = object()
+            self.theme_colors = {
+                "bg_secondary": "#fff",
+                "fg_secondary": "#111",
+                "accent_color": "#06c",
+                "success_color": "#137333",
+            }
+            if self._done_event is not None:
+                self._done_event.set()
+
+    class _FakeTelegramBridge:
+        def __init__(self):
+            observed["bridge"] = self
+            self.complete_calls = []
+            self.edit_calls = []
+            self.unpin_calls = []
+
+        def send_prompt(self, title, prompt):
+            return 777
+
+        def poll_for_answer_details(self, prompt_message_id, cancel_event, answer_queue=None):
+            cancel_event.wait(timeout=1.0)
+            return None
+
+        def complete_prompt_session(self, prompt_message_id, *, status, source=None):
+            self.complete_calls.append((prompt_message_id, status, source))
+
+        def edit_message(self, message_id, new_text, parse_mode=None):
+            self.edit_calls.append((message_id, new_text, parse_mode))
+            return True
+
+        def unpin_message(self, message_id):
+            self.unpin_calls.append(message_id)
+            return True
+
+        def _escape_html(self, text):
+            return text
+
+    monkeypatch.setattr(server, "_ensure_persistent_root", lambda: object())
+    monkeypatch.setattr(server, "_dialog_request_queue", _ImmediateQueue())
+    monkeypatch.setattr(server, "MultilineInputDialog", _FakeMultilineInputDialog)
+    monkeypatch.setattr(server, "TelegramBridge", _FakeTelegramBridge)
+    monkeypatch.setattr(server, "is_telegram_configured", lambda: True)
+    monkeypatch.setattr(server, "_build_miniapp_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server.tk, "Label", _FakeLabel)
+
+    result = server.create_remote_input_dialog("Title", "Prompt")
+
+    assert result == "answered locally"
+    assert observed["bridge"].complete_calls == [(777, "local_reply", "tkinter")]
+    assert observed["bridge"].edit_calls == [
+        (
+            777,
+            "🖥️ <b>Title</b>\n\nOriginal message:\n<blockquote expandable>Prompt</blockquote>\n\n✅ User answered via local dialog:\n<blockquote expandable>answered locally</blockquote>",
+            "HTML",
+        )
+    ]
+    assert observed["bridge"].unpin_calls == [777]
+
+
+def test_create_remote_input_dialog_gui_local_cancel_unpins_prompt(monkeypatch):
+    """Local GUI cancellation should still unpin the Telegram prompt during cleanup."""
+    observed = {}
+
+    class _FakeLabel:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def grid(self, *args, **kwargs):
+            return None
+
+        def configure(self, *args, **kwargs):
+            return None
+
+    class _FakeDialogWindow:
+        def after_cancel(self, _reminder_id):
+            return None
+
+        def lift(self):
+            return None
+
+        def destroy(self):
+            return None
+
+    class _FakeMultilineInputDialog:
+        def __init__(self, parent, title, prompt, default_value="", done_event=None):
+            self.result = None
+            self._done_event = done_event
+            self._reminder_id = None
+            self.dialog = _FakeDialogWindow()
+            self.main_frame = object()
+            self.theme_colors = {
+                "bg_secondary": "#fff",
+                "fg_secondary": "#111",
+                "accent_color": "#06c",
+                "success_color": "#137333",
+            }
+            if self._done_event is not None:
+                self._done_event.set()
+
+    class _FakeTelegramBridge:
+        def __init__(self):
+            observed["bridge"] = self
+            self.complete_calls = []
+            self.edit_calls = []
+            self.unpin_calls = []
+
+        def send_prompt(self, title, prompt):
+            return 778
+
+        def poll_for_answer_details(self, prompt_message_id, cancel_event, answer_queue=None):
+            cancel_event.wait(timeout=1.0)
+            return None
+
+        def complete_prompt_session(self, prompt_message_id, *, status, source=None):
+            self.complete_calls.append((prompt_message_id, status, source))
+
+        def edit_message(self, message_id, new_text, parse_mode=None):
+            self.edit_calls.append((message_id, new_text, parse_mode))
+            return True
+
+        def unpin_message(self, message_id):
+            self.unpin_calls.append(message_id)
+            return True
+
+        def _escape_html(self, text):
+            return text
+
+    monkeypatch.setattr(server, "_ensure_persistent_root", lambda: object())
+    monkeypatch.setattr(server, "_dialog_request_queue", _ImmediateQueue())
+    monkeypatch.setattr(server, "MultilineInputDialog", _FakeMultilineInputDialog)
+    monkeypatch.setattr(server, "TelegramBridge", _FakeTelegramBridge)
+    monkeypatch.setattr(server, "is_telegram_configured", lambda: True)
+    monkeypatch.setattr(server, "_build_miniapp_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server.tk, "Label", _FakeLabel)
+
+    result = server.create_remote_input_dialog("Title", "Prompt")
+
+    assert result is None
+    assert observed["bridge"].complete_calls == [(778, "local_cancel", "tkinter")]
+    assert observed["bridge"].edit_calls == [
+        (778, "🖥️ <b>Title</b>\n\nOriginal message:\n<blockquote expandable>Prompt</blockquote>\n\n❌ Cancelled locally", "HTML")
+    ]
+    assert observed["bridge"].unpin_calls == [778]
+
+
+def test_create_remote_input_dialog_gui_unexpected_exception_still_cleans_up_prompt(monkeypatch):
+    """GUI-path crashes after prompt send should still complete and unpin the prompt."""
+    observed = {}
+    original_thread = server.threading.Thread
+
+    class _FakeLabel:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def grid(self, *args, **kwargs):
+            return None
+
+        def configure(self, *args, **kwargs):
+            return None
+
+    class _FakeDialogWindow:
+        def after_cancel(self, _reminder_id):
+            return None
+
+        def lift(self):
+            return None
+
+        def destroy(self):
+            return None
+
+    class _FakeMultilineInputDialog:
+        def __init__(self, parent, title, prompt, default_value="", done_event=None):
+            self.result = None
+            self._done_event = done_event
+            self._reminder_id = None
+            self.dialog = _FakeDialogWindow()
+            self.main_frame = object()
+            self.theme_colors = {
+                "bg_secondary": "#fff",
+                "fg_secondary": "#111",
+                "accent_color": "#06c",
+            }
+
+    class _FakeTelegramBridge:
+        def __init__(self):
+            observed["bridge"] = self
+            self.complete_calls = []
+            self.unpin_calls = []
+
+        def send_prompt(self, title, prompt):
+            return 780
+
+        def complete_prompt_session(self, prompt_message_id, *, status, source=None):
+            self.complete_calls.append((prompt_message_id, status, source))
+
+        def unpin_message(self, message_id):
+            self.unpin_calls.append(message_id)
+            return True
+
+    class _FailingPollerThread(original_thread):
+        def start(self):
+            if self.name == "tg-remote-input-poller":
+                raise RuntimeError("poller bootstrap failed")
+            return super().start()
+
+    monkeypatch.setattr(server, "_ensure_persistent_root", lambda: object())
+    monkeypatch.setattr(server, "_dialog_request_queue", _ImmediateQueue())
+    monkeypatch.setattr(server, "MultilineInputDialog", _FakeMultilineInputDialog)
+    monkeypatch.setattr(server, "TelegramBridge", _FakeTelegramBridge)
+    monkeypatch.setattr(server, "is_telegram_configured", lambda: True)
+    monkeypatch.setattr(server, "_build_miniapp_session", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server.tk, "Label", _FakeLabel)
+    monkeypatch.setattr(server.threading, "Thread", _FailingPollerThread)
+
+    result = server.create_remote_input_dialog("Title", "Prompt")
+
+    assert result is None
+    assert observed["bridge"].complete_calls == [(780, "timeout", "telegram")]
+    assert observed["bridge"].unpin_calls == [780]
+
+
+def test_create_remote_input_dialog_headless_timeout_unpins_prompt(monkeypatch):
+    """Headless timeout cleanup should still unpin the Telegram prompt."""
+    observed = {}
+
+    class _FakeTelegramBridge:
+        def __init__(self):
+            observed["bridge"] = self
+            self.complete_calls = []
+            self.edit_calls = []
+            self.unpin_calls = []
+
+        def send_prompt(self, title, prompt):
+            return 779
+
+        def poll_for_answer_details(self, prompt_message_id, cancel_event, answer_queue=None):
+            return None
+
+        def complete_prompt_session(self, prompt_message_id, *, status, source=None):
+            self.complete_calls.append((prompt_message_id, status, source))
+
+        def edit_message(self, message_id, new_text, parse_mode=None):
+            self.edit_calls.append((message_id, new_text, parse_mode))
+            return True
+
+        def unpin_message(self, message_id):
+            self.unpin_calls.append(message_id)
+            return True
+
+        def _escape_html(self, text):
+            return text
+
+    monkeypatch.setattr(server, "_ensure_persistent_root", lambda: None)
+    monkeypatch.setattr(server, "is_telegram_configured", lambda: True)
+    monkeypatch.setattr(server, "TelegramBridge", _FakeTelegramBridge)
+    monkeypatch.setattr(server, "_get_multiline_input_custom_prompts", lambda: [])
+    monkeypatch.setattr(server, "_build_miniapp_session", lambda *args, **kwargs: None)
+
+    result = server.create_remote_input_dialog("Title", "Prompt")
+
+    assert result is None
+    assert observed["bridge"].complete_calls == [(779, "timeout", "telegram")]
+    assert observed["bridge"].edit_calls == [(779, "⏰ Timed out — no response received.", None)]
+    assert observed["bridge"].unpin_calls == [779]
+
+
+@pytest.mark.asyncio
+async def test_health_check_is_passive_for_gui_state(monkeypatch):
+    """Health checks must report lazy GUI state without forcing Tk initialization."""
+    monkeypatch.setattr(
+        server,
+        "ensure_gui_initialized",
+        lambda: (_ for _ in ()).throw(AssertionError("health_check must stay passive")),
+    )
+    monkeypatch.setattr(server, "_TKINTER_AVAILABLE", True)
+    monkeypatch.setattr(server, "_gui_initialized", False)
+    monkeypatch.setattr(server, "_persistent_gui_thread", None)
+    monkeypatch.setattr(server, "_is_bypass_active", lambda: False)
+    monkeypatch.setattr(
+        server,
+        "describe_shared_hub_status",
+        lambda: {
+            "mode": "off",
+            "enabled": False,
+            "configured": False,
+            "descriptor_present": False,
+            "hub_reachable": False,
+            "hub_healthy": False,
+            "hub_ready": False,
+            "health": None,
+            "descriptor": None,
+        },
+    )
+
+    # Access .fn to get the underlying async function from the FunctionTool wrapper
+    result = await server.health_check.fn()
+
+    assert result["status"] == "healthy"
+    assert result["gui_available"] is True
+    assert result["gui_initialized"] is False
+    assert result["gui_thread_running"] is False
+    assert result["gui_lazy"] is True
+    assert result["startup_ready"] is True
