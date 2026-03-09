@@ -136,7 +136,11 @@ class TelegramBridge:
                 timeout=15,
             )
             if resp.status_code == 200:
-                return resp.json()["result"]["message_id"]
+                message_id = resp.json()["result"]["message_id"]
+                # Best-effort pinning keeps active prompts visible without ever
+                # interrupting the main request flow if Telegram rejects it.
+                self.pin_message(message_id)
+                return message_id
             else:
                 try:
                     print(
@@ -205,7 +209,11 @@ class TelegramBridge:
                 timeout=15,
             )
             if resp.status_code == 200:
-                return resp.json()["result"]["message_id"]
+                message_id = resp.json()["result"]["message_id"]
+                # Best-effort pinning keeps active prompts visible without ever
+                # interrupting the main request flow if Telegram rejects it.
+                self.pin_message(message_id)
+                return message_id
             else:
                 try:
                     print(
@@ -220,6 +228,52 @@ class TelegramBridge:
             except UnicodeEncodeError:
                 pass
         return None
+
+    def _set_message_pin_state(self, message_id: int, *, pinned: bool) -> bool:
+        """Best-effort pin/unpin helper that never raises into prompt flows."""
+        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
+
+        def _log(msg):
+            try:
+                with open(diag_path, "a", encoding="utf-8") as f:
+                    f.write(
+                        f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+                        f"[{'pin_message' if pinned else 'unpin_message'}] {msg}\n"
+                    )
+            except Exception:
+                pass
+
+        try:
+            payload: dict[str, Any] = {
+                "chat_id": self.chat_id,
+                "message_id": int(message_id),
+            }
+            if pinned:
+                payload["disable_notification"] = True
+
+            response = requests.post(
+                self._api("pinChatMessage" if pinned else "unpinChatMessage"),
+                json=payload,
+                timeout=10,
+            )
+            if response.status_code == 200:
+                _log(f"msg_id={message_id}: SUCCESS")
+                return True
+            _log(
+                f"msg_id={message_id}: FAILED HTTP {response.status_code} - "
+                f"{response.text}"
+            )
+        except Exception as exc:
+            _log(f"msg_id={message_id}: EXCEPTION - {exc}")
+        return False
+
+    def pin_message(self, message_id: int) -> bool:
+        """Pin a prompt message without breaking the main Telegram flow."""
+        return self._set_message_pin_state(message_id, pinned=True)
+
+    def unpin_message(self, message_id: int) -> bool:
+        """Unpin a prompt message without breaking the main Telegram flow."""
+        return self._set_message_pin_state(message_id, pinned=False)
 
     def poll_for_answer(
         self,

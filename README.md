@@ -368,8 +368,40 @@ The `get_remote_input` tool optionally supports answering prompts from Telegram.
 3. The first channel to receive a response wins:
    - **Reply on Telegram** → the local dialog closes automatically.
    - **Reply on tkinter** → the Telegram message is edited to show it's no longer active.
-4. When a Telegram reply is received, the server reacts to that reply message with a ✅ for immediate visual acknowledgement.
+4. When a Telegram reply is received, the server reacts to that reply message with a 👍 for immediate visual acknowledgement.
 5. The Telegram prompt message is updated with the final status (✅ answered, ❌ cancelled, ⏰ timed out).
+
+### Telegram command toggles for automatic approval messages
+
+The Telegram bot also exposes two host-local admin commands:
+
+- `/bloquear_mensagens_automaticas`
+- `/permitir_mensagens_automaticas`
+
+These commands do **not** hardcode any machine-specific VS Code path in tracked source. Instead, they read a local-only JSON file outside the repository and then rename the targeted key in your VS Code `settings.json` without reformatting unrelated JSONC content.
+
+Default local config locations:
+
+- Windows: `%LOCALAPPDATA%\hitl-mcp-server\vscode-auto-messages.local.json`
+- macOS: `~/Library/Application Support/hitl-mcp-server/vscode-auto-messages.local.json`
+- Linux: `${XDG_STATE_HOME:-~/.local/state}/hitl-mcp-server/vscode-auto-messages.local.json`
+
+You can override that config file path with `HITL_MCP_AUTO_MESSAGES_CONFIG`.
+
+Config shape:
+
+```json
+{
+  "vscode_settings_path": "C:/path/to/Code/User/settings.json"
+}
+```
+
+Command behavior:
+
+- `/bloquear_mensagens_automaticas` renames `"_chat.tools.eligibleForAutoApproval"` to `"chat.tools.eligibleForAutoApproval"`
+- `/permitir_mensagens_automaticas` renames `"chat.tools.eligibleForAutoApproval"` back to `"_chat.tools.eligibleForAutoApproval"`
+
+The bot replies clearly for success, already-in-target-state, missing local config, missing settings path/file, conflict, or write failure.
 
 ### Shared Telegram Hub Mode (same host, same bot/chat)
 
@@ -377,7 +409,7 @@ By default, `HITL_SHARED_TELEGRAM_MODE` resolves to `auto`. Both `auto` and `req
 
 1. A **host-local hub** is auto-discovered or auto-started on `127.0.0.1`.
 2. The hub becomes the **only** owner of Telegram `getUpdates` for that bot/chat pair on the host.
-3. Normal MCP server instances still send Telegram prompt messages directly, but inbound plain-text replies and `/bypass` commands are routed through the hub.
+3. Normal MCP server instances still send Telegram prompt messages directly, but inbound plain-text replies plus `/bypass`, `/bloquear_mensagens_automaticas`, and `/permitir_mensagens_automaticas` are routed through the hub.
 4. **Mini App submissions stay local/token-based** and do not depend on Telegram polling.
 5. Runtime state moves to a **host-global directory** shared by sibling worktrees:
   - Windows: `%LOCALAPPDATA%\hitl-mcp-server\shared-telegram\<scope>`
