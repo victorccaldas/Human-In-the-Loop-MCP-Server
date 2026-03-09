@@ -55,9 +55,11 @@ try:
         describe_shared_hub_status,
         detect_unsafe_direct_polling,
         ensure_shared_telegram_hub,
+        get_telegram_admin_commands,
         get_bypass_lock_file,
         get_bypass_log_file,
         get_shared_telegram_mode,
+        handle_vscode_auto_message_telegram_command,
         is_shared_telegram_enabled,
         load_telegram_credentials,
         run_shared_hub_from_argv,
@@ -72,7 +74,10 @@ except ImportError:
             "enabled": False,
             "configured": False,
             "descriptor_present": False,
+            "hub_reachable": False,
             "hub_healthy": False,
+            "hub_ready": False,
+            "health": None,
             "descriptor": None,
         }
 
@@ -82,6 +87,27 @@ except ImportError:
     def ensure_shared_telegram_hub(**_kwargs):
         raise SharedTelegramHubError("Shared Telegram hub support is unavailable.")
 
+    def get_telegram_admin_commands() -> list[dict[str, str]]:
+        return [
+            {"command": "bypass", "description": "Show bypass mode status"},
+            {
+                "command": "bypass_on",
+                "description": "Activate bypass (auto-approve all). Usage: /bypass_on [minutes]",
+            },
+            {
+                "command": "bypass_off",
+                "description": "Deactivate bypass (require human approval)",
+            },
+            {
+                "command": "bloquear_mensagens_automaticas",
+                "description": "Block automatic VS Code approval messages",
+            },
+            {
+                "command": "permitir_mensagens_automaticas",
+                "description": "Allow automatic VS Code approval messages",
+            },
+        ]
+
     def get_bypass_lock_file(_credentials=None) -> str:
         return os.path.join(os.path.dirname(os.path.abspath(__file__)), "bypass_active.lock")
 
@@ -90,6 +116,9 @@ except ImportError:
 
     def get_shared_telegram_mode() -> str:
         return "off"
+
+    def handle_vscode_auto_message_telegram_command(_text: str) -> Optional[str]:
+        return None
 
     def is_shared_telegram_enabled() -> bool:
         return False
@@ -449,6 +478,21 @@ def _start_command_poller():
     print("[Bypass] Telegram command poller started")
 
 
+def _describe_gui_status() -> Dict[str, Any]:
+    """Report GUI capability and lazy-init state without forcing Tk startup."""
+    gui_thread_running = bool(
+        _persistent_gui_thread is not None and _persistent_gui_thread.is_alive()
+    )
+    return {
+        "gui_available": _TKINTER_AVAILABLE,
+        "gui_initialized": _gui_initialized,
+        "gui_thread_running": gui_thread_running,
+        # Tk is intentionally lazy by contract, so availability and initialization
+        # must be reported separately.
+        "gui_lazy": _TKINTER_AVAILABLE and not (_gui_initialized or gui_thread_running),
+    }
+
+
 def _stop_command_poller():
     """Stop the Telegram command poller thread."""
     global _command_poller_thread, _command_poller_stop
@@ -468,8 +512,25 @@ def _stop_command_poller():
     print("[Bypass] Telegram command poller stopped")
 
 
+def _try_handle_telegram_admin_command(tg, text: str) -> bool:
+    """Dispatch Telegram admin commands without disturbing prompt replies."""
+    normalized_text = (text or "").strip()
+    normalized_lower = normalized_text.lower()
+
+    if normalized_lower.startswith("/bypass"):
+        _handle_bypass_command(tg, normalized_lower)
+        return True
+
+    auto_message_reply = handle_vscode_auto_message_telegram_command(normalized_text)
+    if auto_message_reply is not None:
+        tg.send_text(auto_message_reply)
+        return True
+
+    return False
+
+
 def _telegram_command_poller_loop():
-    """Background thread that listens for /bypass commands in Telegram."""
+    """Background thread that listens for Telegram admin commands."""
     try:
         import requests as _requests_poller
 
@@ -479,11 +540,7 @@ def _telegram_command_poller_loop():
             tg.flush_updates()
 
         # Register bot command menu (shows "/" button in Telegram)
-        tg.set_my_commands([
-            {"command": "bypass", "description": "Show bypass mode status"},
-            {"command": "bypass_on", "description": "Activate bypass (auto-approve all). Usage: /bypass_on [minutes]"},
-            {"command": "bypass_off", "description": "Deactivate bypass (require human approval)"},
-        ])
+        tg.set_my_commands(get_telegram_admin_commands())
 
         _offset = None
 
@@ -510,15 +567,14 @@ def _telegram_command_poller_loop():
                 for update in data.get("result", []):
                     _offset = update["update_id"] + 1
                     msg = update.get("message", {})
-                    text = (msg.get("text") or "").strip().lower()
+                    text = (msg.get("text") or "").strip()
                     chat_id = str(msg.get("chat", {}).get("id", ""))
 
                     # Only process messages from the configured chat
                     if chat_id != str(tg.chat_id):
                         continue
 
-                    if text.startswith("/bypass"):
-                        _handle_bypass_command(tg, text)
+                    _try_handle_telegram_admin_command(tg, text)
 
             except Exception as e:
                 if not _command_poller_stop.is_set():
@@ -2322,6 +2378,51 @@ def create_remote_input_dialog(
         # Allow the async MCP tool wrapper to signal that the transport was
         # cancelled so this worker thread can stop polling and close UI state.
         transport_cancel = external_cancel or threading.Event()
+        tg_bridge: Optional[Any] = None
+        tg_msg_id: Optional[int] = None
+        miniapp_session: Optional[MiniAppSession] = None
+        result_container: Dict[str, Any] = {
+            "text": None,
+            "source": None,
+            "dialog": None,
+        }
+        prompt_cleanup_state = {
+            "completed": False,
+            "unpinned": False,
+        }
+
+        def _best_effort_gui_prompt_cleanup() -> None:
+            # Purpose: unexpected GUI-path exceptions must still release the
+            # shared-hub prompt lifecycle and unpin the active Telegram prompt.
+            if not tg_bridge or not tg_msg_id:
+                return
+
+            cleanup_source = result_container.get("source")
+            cleanup_text = result_container.get("text")
+
+            if (
+                not prompt_cleanup_state["completed"]
+                and hasattr(tg_bridge, "complete_prompt_session")
+            ):
+                try:
+                    tg_bridge.complete_prompt_session(
+                        tg_msg_id,
+                        status=_get_remote_completion_status(cleanup_source, cleanup_text),
+                        source=cleanup_source or "telegram",
+                    )
+                    prompt_cleanup_state["completed"] = True
+                except Exception:
+                    pass
+
+            if (
+                not prompt_cleanup_state["unpinned"]
+                and hasattr(tg_bridge, "unpin_message")
+            ):
+                try:
+                    tg_bridge.unpin_message(tg_msg_id)
+                    prompt_cleanup_state["unpinned"] = True
+                except Exception:
+                    pass
 
         root = _ensure_persistent_root()
         if root is None:
@@ -2333,6 +2434,7 @@ def create_remote_input_dialog(
                 return None
 
             _miniapp_session: Optional[MiniAppSession] = None
+            _msg_id: Optional[int] = None
             try:
                 _tg = TelegramBridge()
 
@@ -2469,22 +2571,22 @@ def create_remote_input_dialog(
                         _miniapp_session.stop()
                     except Exception:
                         pass
+                # Always try to unpin the prompt once the request lifecycle is
+                # over, regardless of whether it ended by reply, cancel, or timeout.
+                try:
+                    if _msg_id is not None and hasattr(_tg, "unpin_message"):
+                        _tg.unpin_message(_msg_id)
+                except Exception:
+                    pass
 
         # --- Shared synchronisation primitives ---
         master_done = threading.Event()   # fires when EITHER channel answers
         tg_cancel   = threading.Event()   # tells the TG poller to stop
         tkinter_done = threading.Event()  # dialog's internal done event
 
-        result_container: Dict[str, Any] = {
-            "text": None,
-            "source": None,        # "tkinter" | "telegram_reply" | "telegram_miniapp" | ...
-            "dialog": None,
-        }
+        result_container["source"] = None        # "tkinter" | "telegram_reply" | "telegram_miniapp" | ...
 
         # --- 1. Initialise Telegram bridge (optional) ---
-        tg_bridge: Optional[Any] = None
-        tg_msg_id: Optional[int] = None
-        miniapp_session: Optional[MiniAppSession] = None
 
         if is_telegram_configured() and TelegramBridge is not None:
             try:
@@ -2796,6 +2898,7 @@ def create_remote_input_dialog(
                     status=completion_status,
                     source=source,
                 )
+                prompt_cleanup_state["completed"] = True
 
             # Small delay when the reply came from Telegram — gives the API
             # time to fully process the reply before we edit the prompt message.
@@ -2859,6 +2962,16 @@ def create_remote_input_dialog(
                 except Exception as exc:
                     _diag(f"send_status fallback exception: {exc}")
 
+            # Always try to unpin the prompt once the request lifecycle is
+            # over, regardless of whether it ended by reply, cancel, or timeout.
+            if hasattr(tg_bridge, "unpin_message"):
+                try:
+                    unpinned = tg_bridge.unpin_message(tg_msg_id)
+                    prompt_cleanup_state["unpinned"] = True
+                    _diag(f"unpin_message returned: {unpinned}")
+                except Exception as exc:
+                    _diag(f"unpin_message exception: {exc}")
+
             _diag(f"Final result: {'OK' if ok else 'FAILED'}")
         else:
             _diag(f"Skipped Telegram cleanup (bridge or msg_id not set)")
@@ -2870,9 +2983,10 @@ def create_remote_input_dialog(
         print(f"[RemoteInput] Unexpected error in create_remote_input_dialog "
               f"(title={title!r}): {type(e).__name__}: {e}")
         _tb.print_exc()
+        _best_effort_gui_prompt_cleanup()
         # Best-effort cleanup of Mini App session on unexpected errors
         try:
-            if "miniapp_session" in dir() and miniapp_session is not None:
+            if miniapp_session is not None:
                 miniapp_session.stop()
         except Exception:
             pass
@@ -3230,12 +3344,22 @@ OPTIMIZE FOR USER EXPERIENCE:
 async def health_check() -> Dict[str, Any]:
     """Check if the Human-in-the-Loop server is running and GUI is available."""
     try:
-        gui_available = ensure_gui_initialized()
+        gui_status = _describe_gui_status()
         shared_hub_status = describe_shared_hub_status()
+        shared_required = bool(
+            shared_hub_status.get("enabled") and shared_hub_status.get("configured")
+        )
+        shared_ready = (not shared_required) or bool(shared_hub_status.get("hub_ready"))
+        if not shared_ready:
+            status = "unhealthy"
+        elif gui_status["gui_available"]:
+            status = "healthy"
+        else:
+            status = "degraded"
         
         return {
-            "status": "healthy" if gui_available else "degraded",
-            "gui_available": gui_available,
+            "status": status,
+            **gui_status,
             "tkinter_available": _TKINTER_AVAILABLE,
             "server_name": "Human-in-the-Loop Server",
             "platform": CURRENT_PLATFORM,
@@ -3251,6 +3375,7 @@ async def health_check() -> Dict[str, Any]:
             "is_macos": IS_MACOS,
             "is_linux": IS_LINUX,
             "bypass_active": _is_bypass_active(),
+            "startup_ready": shared_ready,
             "shared_telegram": shared_hub_status,
             "tools_available": [
                 "get_user_input",
@@ -3266,6 +3391,9 @@ async def health_check() -> Dict[str, Any]:
         return {
             "status": "unhealthy",
             "gui_available": False,
+            "gui_initialized": _gui_initialized,
+            "gui_thread_running": False,
+            "gui_lazy": False,
             "tkinter_available": _TKINTER_AVAILABLE,
             "error": str(e),
             "platform": CURRENT_PLATFORM

@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import socket
 import subprocess
 import sys
@@ -38,6 +39,13 @@ _HUB_VERSION = 1
 _DEFAULT_WAIT_TIMEOUT_SECONDS = 5.0
 _SHARED_MODE_ENV = "HITL_SHARED_TELEGRAM_MODE"
 _RUNTIME_DIR_ENV = "HITL_MCP_RUNTIME_DIR"
+_AUTO_MESSAGES_CONFIG_ENV = "HITL_MCP_AUTO_MESSAGES_CONFIG"
+_AUTO_MESSAGES_CONFIG_FILENAME = "vscode-auto-messages.local.json"
+_AUTO_MESSAGES_SETTINGS_PATH_KEY = "vscode_settings_path"
+_AUTO_APPROVAL_ALLOWED_KEY = "_chat.tools.eligibleForAutoApproval"
+_AUTO_APPROVAL_BLOCKED_KEY = "chat.tools.eligibleForAutoApproval"
+_BLOCK_AUTO_MESSAGES_COMMAND = "/bloquear_mensagens_automaticas"
+_ALLOW_AUTO_MESSAGES_COMMAND = "/permitir_mensagens_automaticas"
 _SERVER_MODULE_NAME = "human_loop_server"
 
 
@@ -161,6 +169,256 @@ def get_host_runtime_root() -> str:
     return _ensure_dir(os.path.join(base, "hitl-mcp-server"))
 
 
+def get_auto_messages_local_config_path() -> str:
+    """Return the host-local config file used by Telegram admin commands.
+
+    This path intentionally lives outside the git worktree so each host/user can
+    point the Telegram commands at a private VS Code ``settings.json`` location
+    without committing machine-specific paths.
+    """
+    override = os.environ.get(_AUTO_MESSAGES_CONFIG_ENV, "").strip()
+    if override:
+        return os.path.abspath(os.path.expanduser(override))
+    return os.path.join(get_host_runtime_root(), _AUTO_MESSAGES_CONFIG_FILENAME)
+
+
+def get_telegram_admin_commands() -> list[dict[str, str]]:
+    """Return the shared Telegram command menu for direct and hub modes."""
+    return [
+        {"command": "bypass", "description": "Show bypass mode status"},
+        {
+            "command": "bypass_on",
+            "description": "Activate bypass (auto-approve all). Usage: /bypass_on [minutes]",
+        },
+        {
+            "command": "bypass_off",
+            "description": "Deactivate bypass (require human approval)",
+        },
+        {
+            "command": "bloquear_mensagens_automaticas",
+            "description": "Block automatic VS Code approval messages",
+        },
+        {
+            "command": "permitir_mensagens_automaticas",
+            "description": "Allow automatic VS Code approval messages",
+        },
+    ]
+
+
+def _get_telegram_command_token(text: str) -> str:
+    """Return the normalized Telegram command token, ignoring any bot mention."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return ""
+    first_token = stripped.split(None, 1)[0]
+    return first_token.split("@", 1)[0].lower()
+
+
+def _count_json_property_key_occurrences(content: str, key: str) -> int:
+    """Count exact JSON/JSONC property-key matches without reformatting the file."""
+    pattern = re.compile(rf'"{re.escape(key)}"\s*:')
+    return len(pattern.findall(content))
+
+
+def _rename_json_property_key(content: str, source_key: str, target_key: str) -> tuple[str, int]:
+    """Rename one exact JSON/JSONC property key while preserving surrounding formatting."""
+    pattern = re.compile(rf'"{re.escape(source_key)}"(?P<separator>\s*:)')
+    return pattern.subn(f'"{target_key}"\\g<separator>', content, count=1)
+
+
+def toggle_vscode_auto_message_setting(
+    *,
+    block_automatic_messages: bool,
+    local_config_path: Optional[str] = None,
+) -> dict[str, Any]:
+    """Toggle the VS Code auto-approval setting via a host-local config file.
+
+    The implementation intentionally edits only the targeted key name in the
+    settings file content so comments and formatting in VS Code's JSONC file are
+    preserved verbatim.
+    """
+    config_path = os.path.abspath(
+        os.path.expanduser(local_config_path or get_auto_messages_local_config_path())
+    )
+    source_key = (
+        _AUTO_APPROVAL_ALLOWED_KEY
+        if block_automatic_messages
+        else _AUTO_APPROVAL_BLOCKED_KEY
+    )
+    target_key = (
+        _AUTO_APPROVAL_BLOCKED_KEY
+        if block_automatic_messages
+        else _AUTO_APPROVAL_ALLOWED_KEY
+    )
+    desired_state = "blocked" if block_automatic_messages else "allowed"
+    result: dict[str, Any] = {
+        "status": "unknown",
+        "desired_state": desired_state,
+        "config_path": config_path,
+        "settings_path": None,
+        "source_key": source_key,
+        "target_key": target_key,
+    }
+
+    if not os.path.isfile(config_path):
+        result["status"] = "missing_local_config"
+        return result
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as handle:
+            config_data = json.load(handle)
+    except Exception as exc:
+        result["status"] = "missing_local_config"
+        result["error"] = str(exc)
+        return result
+
+    raw_settings_path = config_data.get(_AUTO_MESSAGES_SETTINGS_PATH_KEY)
+    if not isinstance(raw_settings_path, str) or not raw_settings_path.strip():
+        result["status"] = "missing_settings_path"
+        return result
+
+    settings_path = os.path.abspath(os.path.expanduser(raw_settings_path.strip()))
+    result["settings_path"] = settings_path
+    if not os.path.isfile(settings_path):
+        result["status"] = "missing_settings_file"
+        return result
+
+    try:
+        with open(settings_path, "r", encoding="utf-8", newline="") as handle:
+            original_content = handle.read()
+    except Exception as exc:
+        result["status"] = "write_failure"
+        result["error"] = str(exc)
+        return result
+
+    source_count = _count_json_property_key_occurrences(original_content, source_key)
+    target_count = _count_json_property_key_occurrences(original_content, target_key)
+    result["source_count"] = source_count
+    result["target_count"] = target_count
+
+    if source_count == 0 and target_count == 1:
+        result["status"] = "already-in-target-state"
+        return result
+
+    if source_count != 1 or target_count != 0:
+        result["status"] = "conflict"
+        if source_count > 0 and target_count > 0:
+            result["reason"] = "both_keys_present"
+        elif source_count == 0 and target_count == 0:
+            result["reason"] = "expected_key_not_found"
+        elif source_count > 1:
+            result["reason"] = "multiple_source_keys_present"
+        else:
+            result["reason"] = "multiple_target_keys_present"
+        return result
+
+    updated_content, replacements = _rename_json_property_key(
+        original_content,
+        source_key,
+        target_key,
+    )
+    if replacements != 1:
+        result["status"] = "conflict"
+        result["reason"] = "rename_not_unique"
+        return result
+
+    temp_path = f"{settings_path}.tmp"
+    try:
+        with open(temp_path, "w", encoding="utf-8", newline="") as handle:
+            handle.write(updated_content)
+        os.replace(temp_path, settings_path)
+        result["status"] = "success"
+        return result
+    except Exception as exc:
+        result["status"] = "write_failure"
+        result["error"] = str(exc)
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(temp_path)
+        return result
+
+
+def format_vscode_auto_message_toggle_result(result: dict[str, Any]) -> str:
+    """Convert a toggle result into a concise Telegram status message."""
+    desired_state = str(result.get("desired_state") or "blocked")
+    config_path = str(result.get("config_path") or get_auto_messages_local_config_path())
+    settings_path = result.get("settings_path")
+    source_key = str(result.get("source_key") or "")
+    target_key = str(result.get("target_key") or "")
+    action_label = "bloqueadas" if desired_state == "blocked" else "permitidas"
+    status = str(result.get("status") or "unknown")
+
+    if status == "success":
+        return (
+            f"✅ Mensagens automáticas {action_label} com sucesso.\n"
+            f"Arquivo: {settings_path}\n"
+            f"Chave alterada: \"{source_key}\" → \"{target_key}\""
+        )
+
+    if status == "already-in-target-state":
+        return (
+            f"ℹ️ Mensagens automáticas já estão {action_label}.\n"
+            f"Arquivo: {settings_path}\n"
+            f"Chave ativa: \"{target_key}\""
+        )
+
+    if status == "missing_local_config":
+        details = ""
+        if result.get("error"):
+            details = f"\nDetalhe: {result['error']}"
+        return (
+            "⚠️ Configuração local ausente para controlar as mensagens automáticas.\n"
+            f"Arquivo esperado: {config_path}{details}\n"
+            "Crie um JSON local com a chave \"vscode_settings_path\" apontando para o settings.json do VS Code."
+        )
+
+    if status == "missing_settings_path":
+        return (
+            "⚠️ A configuração local existe, mas não define \"vscode_settings_path\".\n"
+            f"Arquivo: {config_path}"
+        )
+
+    if status == "missing_settings_file":
+        return (
+            "⚠️ O settings.json configurado não foi encontrado.\n"
+            f"Configuração: {config_path}\n"
+            f"Caminho informado: {settings_path}"
+        )
+
+    if status == "conflict":
+        return (
+            "⚠️ Conflito ao atualizar o settings.json; nenhuma alteração foi aplicada.\n"
+            f"Arquivo: {settings_path}\n"
+            f"Estado detectado: source={result.get('source_count', 0)}, target={result.get('target_count', 0)}, reason={result.get('reason', 'unknown')}\n"
+            f"Chaves esperadas: \"{source_key}\" / \"{target_key}\""
+        )
+
+    if status == "write_failure":
+        return (
+            "❌ Falha ao gravar o settings.json do VS Code.\n"
+            f"Arquivo: {settings_path}\n"
+            f"Erro: {result.get('error', 'unknown')}"
+        )
+
+    return (
+        "❌ Não foi possível atualizar o controle de mensagens automáticas.\n"
+        f"Status: {status}"
+    )
+
+
+def handle_vscode_auto_message_telegram_command(text: str) -> Optional[str]:
+    """Handle Telegram commands that toggle the local VS Code auto-message key."""
+    command = _get_telegram_command_token(text)
+    if command == _BLOCK_AUTO_MESSAGES_COMMAND:
+        return format_vscode_auto_message_toggle_result(
+            toggle_vscode_auto_message_setting(block_automatic_messages=True)
+        )
+    if command == _ALLOW_AUTO_MESSAGES_COMMAND:
+        return format_vscode_auto_message_toggle_result(
+            toggle_vscode_auto_message_setting(block_automatic_messages=False)
+        )
+    return None
+
+
 def load_telegram_credentials(
     config_path: Optional[str] = None,
     environ: Optional[dict[str, str]] = None,
@@ -261,18 +519,52 @@ def _remove_file_safely(path: str) -> None:
         os.remove(path)
 
 
-def _is_descriptor_healthy(descriptor: SharedHubDescriptor, timeout: float = 1.5) -> bool:
-    """Probe the HTTP health endpoint for a discovered descriptor."""
+def _probe_descriptor_health(
+    descriptor: SharedHubDescriptor,
+    timeout: float = 1.5,
+) -> dict[str, Any]:
+    """Probe the HTTP health endpoint and report readiness details.
+
+    The hub descriptor can exist before Telegram polling finishes bootstrapping,
+    so callers need to distinguish a reachable hub that is still starting from
+    a stale descriptor that points nowhere.
+    """
+    state: dict[str, Any] = {
+        "reachable": False,
+        "status_code": None,
+        "scope_matches": False,
+        "ok": False,
+        "ready": False,
+        "payload": None,
+        "error": None,
+    }
     if requests is None:
-        return False
+        state["error"] = "requests_unavailable"
+        return state
     try:
         response = requests.get(f"{descriptor.base_url}/health", timeout=timeout)
+        state["status_code"] = response.status_code
         if response.status_code != 200:
-            return False
+            return state
         data = response.json()
-        return bool(data.get("ok")) and data.get("scope_key") == descriptor.scope_key
-    except Exception:
-        return False
+        state["reachable"] = True
+        state["payload"] = data
+        state["ok"] = bool(data.get("ok"))
+        state["scope_matches"] = data.get("scope_key") == descriptor.scope_key
+        # Readiness is stricter than reachability: the hub must have completed
+        # poller bootstrap before sibling worktrees consider it usable.
+        state["ready"] = bool(data.get("ready", data.get("ok"))) and bool(
+            state["scope_matches"]
+        )
+        return state
+    except Exception as exc:
+        state["error"] = str(exc)
+        return state
+
+
+def _is_descriptor_healthy(descriptor: SharedHubDescriptor, timeout: float = 1.5) -> bool:
+    """Return True only when the descriptor points at a ready shared hub."""
+    return bool(_probe_descriptor_health(descriptor, timeout=timeout).get("ready"))
 
 
 def find_running_hub_descriptor(
@@ -292,8 +584,17 @@ def find_running_hub_descriptor(
         return None
     if descriptor.scope_key != (creds.scope_key if creds else descriptor.scope_key):
         return None
-    if _is_descriptor_healthy(descriptor):
+    probe = _probe_descriptor_health(descriptor)
+    if probe.get("ready"):
         return descriptor
+    # Reachable hubs can legitimately report not-ready while the Telegram
+    # poller is still bootstrapping; keep the descriptor so peers can wait.
+    if probe.get("reachable"):
+        return None
+    # If startup orchestration is still in progress, avoid racing the launcher
+    # by pruning the descriptor before the new hub can finish bootstrapping.
+    if os.path.exists(paths.startup_lock_path):
+        return None
     if prune_stale:
         _remove_file_safely(paths.descriptor_path)
     return None
@@ -545,8 +846,13 @@ def describe_shared_hub_status(
     """Return diagnostics describing the shared hub and runtime scope."""
     creds = credentials or load_telegram_credentials()
     paths = get_runtime_paths(creds)
-    descriptor = find_running_hub_descriptor(creds, prune_stale=False)
-    healthy = bool(descriptor and _is_descriptor_healthy(descriptor))
+    descriptor = _read_descriptor(paths.descriptor_path)
+    if descriptor is not None:
+        expected_scope = creds.scope_key if creds else descriptor.scope_key
+        if descriptor.version != _HUB_VERSION or descriptor.scope_key != expected_scope:
+            descriptor = None
+    probe = _probe_descriptor_health(descriptor) if descriptor is not None else None
+    ready = bool(probe and probe.get("ready"))
     return {
         "mode": get_shared_telegram_mode(),
         "enabled": is_shared_telegram_enabled(),
@@ -554,7 +860,10 @@ def describe_shared_hub_status(
         "runtime_scope": paths.scope_dir,
         "configured": creds is not None,
         "descriptor_present": descriptor is not None,
-        "hub_healthy": healthy,
+        "hub_reachable": bool(probe and probe.get("reachable")),
+        "hub_healthy": ready,
+        "hub_ready": ready,
+        "health": probe.get("payload") if probe else None,
         "descriptor": asdict(descriptor) if descriptor is not None else None,
     }
 
@@ -585,8 +894,15 @@ class SharedTelegramHubService:
         self._http_thread: Optional[threading.Thread] = None
         self._poller_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        # Track readiness explicitly so startup waits for Telegram polling to
+        # become usable before the descriptor/health surface turns green.
+        self._http_ready = threading.Event()
+        self._poller_ready = threading.Event()
         self._update_offset: Optional[int] = None
         self._commands_registered = False
+        self._poller_bootstrap_error: Optional[str] = None
+        self._last_poll_error: Optional[str] = None
+        self._last_poll_success_at: Optional[str] = None
         self._mailboxes: dict[int, _PromptMailbox] = {}
         self._mailboxes_lock = threading.Lock()
 
@@ -619,17 +935,60 @@ class SharedTelegramHubService:
         """Persist the discovery descriptor after the HTTP server is listening."""
         _write_descriptor(self.descriptor(), self.runtime_paths.descriptor_path)
 
-    def _flush_updates(self) -> None:
-        """Advance the Telegram update offset so the hub only sees fresh messages."""
+    def _record_poll_failure(self, message: str, *, bootstrap: bool = False) -> None:
+        """Capture polling failures without falsely advertising readiness."""
+        self._last_poll_error = message
+        if bootstrap:
+            self._poller_bootstrap_error = message
+            self._poller_ready.clear()
+        self._log(message)
+
+    def _mark_poll_success(self) -> None:
+        """Remember the last successful Telegram polling round-trip."""
+        self._last_poll_error = None
+        self._last_poll_success_at = _utc_now_iso()
+
+    def _bootstrap_poller(self) -> bool:
+        """Claim Telegram polling ownership before the hub is considered ready."""
+        self._set_my_commands()
         try:
             response = requests.get(self._api("getUpdates"), params={"timeout": 0}, timeout=5)
             if response.status_code != 200:
-                return
+                self._record_poll_failure(
+                    f"bootstrap getUpdates returned HTTP {response.status_code}",
+                    bootstrap=True,
+                )
+                return False
             updates = response.json().get("result", [])
             if updates:
                 self._update_offset = updates[-1]["update_id"] + 1
+            self._poller_bootstrap_error = None
+            self._poller_ready.set()
+            self._mark_poll_success()
+            return True
         except Exception as exc:
-            self._log(f"flush_updates failed: {exc}")
+            self._record_poll_failure(f"bootstrap getUpdates failed: {exc}", bootstrap=True)
+            return False
+
+    def readiness_snapshot(self) -> dict[str, Any]:
+        """Return the hub's current readiness state for health reporting."""
+        poller_expected = self.start_poller
+        poller_thread_alive = bool(self._poller_thread and self._poller_thread.is_alive())
+        poller_ready = self._poller_ready.is_set() if poller_expected else True
+        ready = self._http_ready.is_set() and poller_ready and (
+            poller_thread_alive if poller_expected else True
+        )
+        return {
+            "ready": ready,
+            "http_ready": self._http_ready.is_set(),
+            "poller_expected": poller_expected,
+            "poller_ready": poller_ready,
+            "poller_thread_alive": poller_thread_alive,
+            "commands_registered": self._commands_registered,
+            "poller_bootstrap_error": self._poller_bootstrap_error,
+            "last_poll_error": self._last_poll_error,
+            "last_poll_success_at": self._last_poll_success_at,
+        }
 
     def _send_text(self, text: str) -> None:
         """Send a plain text chat message for bypass command responses."""
@@ -667,19 +1026,7 @@ class SharedTelegramHubService:
         try:
             response = requests.post(
                 self._api("setMyCommands"),
-                json={
-                    "commands": [
-                        {"command": "bypass", "description": "Show bypass mode status"},
-                        {
-                            "command": "bypass_on",
-                            "description": "Activate bypass (auto-approve all). Usage: /bypass_on [minutes]",
-                        },
-                        {
-                            "command": "bypass_off",
-                            "description": "Deactivate bypass (require human approval)",
-                        },
-                    ]
-                },
+                json={"commands": get_telegram_admin_commands()},
                 timeout=10,
             )
             self._commands_registered = response.status_code == 200 and response.json().get("ok", False)
@@ -836,6 +1183,10 @@ class SharedTelegramHubService:
         if text.startswith("/bypass"):
             self._handle_bypass_command(text.lower())
             return
+        auto_message_reply = handle_vscode_auto_message_telegram_command(text)
+        if auto_message_reply is not None:
+            self._send_text(auto_message_reply)
+            return
 
         reply_to = message.get("reply_to_message") or {}
         prompt_message_id = reply_to.get("message_id")
@@ -853,10 +1204,12 @@ class SharedTelegramHubService:
 
     def _poll_loop(self) -> None:
         """Own the Telegram getUpdates loop for this host-local bot/chat scope."""
-        self._set_my_commands()
-        self._flush_updates()
-
         while not self._stop_event.is_set():
+            if not self._poller_ready.is_set():
+                if not self._bootstrap_poller():
+                    self._stop_event.wait(timeout=1.0)
+                    continue
+
             try:
                 params: dict[str, Any] = {
                     "timeout": 3,
@@ -866,15 +1219,19 @@ class SharedTelegramHubService:
                     params["offset"] = self._update_offset
                 response = requests.get(self._api("getUpdates"), params=params, timeout=10)
                 if response.status_code != 200:
+                    self._record_poll_failure(
+                        f"poll_loop getUpdates returned HTTP {response.status_code}"
+                    )
                     self._stop_event.wait(timeout=1.0)
                     continue
                 payload = response.json()
+                self._mark_poll_success()
                 for update in payload.get("result", []):
                     self._update_offset = update["update_id"] + 1
                     self._process_update(update)
                 self._cleanup_mailboxes()
             except Exception as exc:
-                self._log(f"poll_loop error: {exc}")
+                self._record_poll_failure(f"poll_loop error: {exc}")
                 self._stop_event.wait(timeout=1.0)
 
     def start(self) -> None:
@@ -905,10 +1262,12 @@ class SharedTelegramHubService:
                     self._write_json(404, {"ok": False, "error": "not_found"})
                     return
                 descriptor = service.descriptor()
+                readiness = service.readiness_snapshot()
                 self._write_json(
                     200,
                     {
-                        "ok": True,
+                        "ok": readiness["ready"],
+                        **readiness,
                         "pid": descriptor.pid,
                         "scope_key": descriptor.scope_key,
                         "port": descriptor.port,
@@ -947,6 +1306,10 @@ class SharedTelegramHubService:
             name="shared-telegram-hub-http",
         )
         self._http_thread.start()
+        self._http_ready.set()
+        if not self.start_poller:
+            # Local HTTP-only mode is ready as soon as the endpoint is serving.
+            self._poller_ready.set()
         self._write_descriptor()
 
         if self.start_poller:
