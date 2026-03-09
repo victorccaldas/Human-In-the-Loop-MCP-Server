@@ -1,5 +1,7 @@
 # AI Agent Instructions
 
+<!-- MCP FALLBACK: After 5 consecutive MCP human-in-the-loop failures (get_remote_input, get_user_input, get_multiline_input, show_confirmation_dialog, or similar), switch to the built-in ask_questions tool as the fallback communication channel. -->
+
 ## Human-in-the-Loop Tool Usage
 
 The `get_remote_input` MCP tool (exposed as `mcp_human-in-the-_get_remote_input`) is the primary channel for all human interaction in this workspace. The following rules are **mandatory and non-negotiable**.
@@ -32,4 +34,6 @@ The `get_remote_input` MCP tool (exposed as `mcp_human-in-the-_get_remote_input`
 
 ### Summary
 
-> The `get_remote_input` tool is the bridge between this AI agent and the human. Treat it as the **only** valid communication channel for all interactions with the user.
+> The `get_remote_input` tool is the bridge between this AI agent and the human. Treat it as the **only** valid communication channel for all interactions with the user while it's accessible.
+> In case of any failure, interruption, or timeout, do not stop — keep using `get_remote_input` to ask the user until they explicitly end the session. Always ask before concluding, and never assume — ask for clarification whenever needed.
+> If the tool fails repeatedly, switch to the built-in `ask_questions` tool as a fallback communication channel after 5 consecutive failures.
