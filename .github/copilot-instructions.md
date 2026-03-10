@@ -34,7 +34,7 @@ The `get_remote_input` MCP tool (exposed as `mcp_human-in-the-_get_remote_input`
 
 ### Useful information
 - Updates to the server require the user to restart the server in order to see the changes in effect
-- Updates to the shared hub require the user executing terminate_hub.bat and restarting the server to see the changes in effect
+- Updates to the shared hub require the user executing actions/terminate_hub.bat and restarting the server to see the changes in effect
 
 ### Summary
 
