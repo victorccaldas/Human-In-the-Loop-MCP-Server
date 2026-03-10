@@ -2,6 +2,7 @@
 
 import asyncio
 import threading
+import time
 from pathlib import Path
 import sys
 
@@ -56,6 +57,109 @@ async def test_get_remote_input_cancellation_re_raises_and_signals_worker(monkey
 
     assert worker_cleanup.wait(1.0)
     assert isinstance(captured["external_cancel"], threading.Event)
+
+
+@pytest.mark.asyncio
+async def test_get_remote_input_cancellation_does_not_cancel_sibling_request(monkeypatch):
+    """Cancelling one request should not propagate transport cancellation to another."""
+    worker_started = threading.Event()
+    release_second = threading.Event()
+    captured_events = {}
+
+    def _fake_remote_input_dialog(
+        title,
+        prompt,
+        default_value="",
+        name_or_role="",
+        external_cancel=None,
+    ):
+        assert external_cancel is not None
+        captured_events[prompt] = external_cancel
+        worker_started.set()
+        if prompt == "first":
+            external_cancel.wait(timeout=2.0)
+            return None
+        release_second.wait(timeout=2.0)
+        if external_cancel.is_set():
+            return "unexpected-cancel"
+        return "second result"
+
+    monkeypatch.setattr(server, "_check_bypass", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "ensure_gui_initialized", lambda: True)
+    monkeypatch.setattr(server, "is_telegram_configured", lambda: False)
+    monkeypatch.setattr(server, "create_remote_input_dialog", _fake_remote_input_dialog)
+
+    first_task = asyncio.create_task(server.get_remote_input.fn("Title", "first"))
+    second_task = asyncio.create_task(server.get_remote_input.fn("Title", "second"))
+
+    await asyncio.to_thread(worker_started.wait, 1.0)
+    await asyncio.sleep(0.05)
+
+    first_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first_task
+
+    release_second.set()
+    second_result = await second_task
+
+    assert captured_events["first"].is_set() is True
+    assert captured_events["second"].is_set() is False
+    assert second_result["success"] is True
+    assert second_result["user_input"] == "second result"
+
+
+@pytest.mark.asyncio
+async def test_get_remote_input_cancellation_waits_for_bounded_worker_cleanup(monkeypatch):
+    """Cancellation should give the worker a chance to release shared resources before returning."""
+    resource_lock = threading.Lock()
+    first_started = threading.Event()
+    timings = {}
+
+    def _fake_remote_input_dialog(
+        title,
+        prompt,
+        default_value="",
+        name_or_role="",
+        external_cancel=None,
+    ):
+        assert external_cancel is not None
+        if prompt == "first":
+            assert resource_lock.acquire(blocking=False)
+            first_started.set()
+            external_cancel.wait(timeout=2.0)
+            timings["cleanup_started"] = time.monotonic()
+            time.sleep(0.3)
+            resource_lock.release()
+            timings["cleanup_finished"] = time.monotonic()
+            return None
+
+        acquired = resource_lock.acquire(blocking=False)
+        try:
+            return "second result" if acquired else "resource busy"
+        finally:
+            if acquired:
+                resource_lock.release()
+
+    monkeypatch.setattr(server, "_check_bypass", lambda *args, **kwargs: None)
+    monkeypatch.setattr(server, "ensure_gui_initialized", lambda: True)
+    monkeypatch.setattr(server, "is_telegram_configured", lambda: False)
+    monkeypatch.setattr(server, "create_remote_input_dialog", _fake_remote_input_dialog)
+
+    first_task = asyncio.create_task(server.get_remote_input.fn("Title", "first"))
+    await asyncio.to_thread(first_started.wait, 1.0)
+
+    cancel_started = time.monotonic()
+    first_task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first_task
+    cancel_finished = time.monotonic()
+
+    second_result = await server.get_remote_input.fn("Title", "second")
+
+    assert cancel_finished >= timings["cleanup_finished"]
+    assert cancel_finished - cancel_started >= 0.25
+    assert second_result["success"] is True
+    assert second_result["user_input"] == "second result"
 
 
 def test_create_remote_input_dialog_headless_transport_cancel_cleans_up(monkeypatch):
@@ -585,6 +689,49 @@ def test_create_remote_input_dialog_headless_timeout_unpins_prompt(monkeypatch):
     assert observed["bridge"].complete_calls == [(779, "timeout", "telegram")]
     assert observed["bridge"].edit_calls == [(779, "⏰ Timed out — no response received.", None)]
     assert observed["bridge"].unpin_calls == [779]
+
+
+def test_create_remote_input_dialog_miniapp_send_failure_only_tries_plain_prompt_once(monkeypatch):
+    """A Mini App send failure should trigger at most one plain Telegram fallback attempt."""
+    observed = {}
+
+    class _FakeMiniAppSession:
+        def __init__(self):
+            self.webapp_url = "https://example.invalid/app"
+            self.stop_calls = 0
+            self.http_server = type("HttpServer", (), {"answer_queue": None})()
+
+        def stop(self):
+            self.stop_calls += 1
+
+    fake_session = _FakeMiniAppSession()
+
+    class _FakeTelegramBridge:
+        def __init__(self):
+            observed["bridge"] = self
+            self.send_prompt_calls = 0
+            self.send_prompt_with_miniapp_calls = 0
+
+        def send_prompt_with_miniapp(self, title, prompt, webapp_url, name_or_role=""):
+            self.send_prompt_with_miniapp_calls += 1
+            return None
+
+        def send_prompt(self, title, prompt):
+            self.send_prompt_calls += 1
+            return None
+
+    monkeypatch.setattr(server, "_ensure_persistent_root", lambda: None)
+    monkeypatch.setattr(server, "is_telegram_configured", lambda: True)
+    monkeypatch.setattr(server, "TelegramBridge", _FakeTelegramBridge)
+    monkeypatch.setattr(server, "_get_multiline_input_custom_prompts", lambda: [])
+    monkeypatch.setattr(server, "_build_miniapp_session", lambda *args, **kwargs: fake_session)
+
+    result = server.create_remote_input_dialog("Title", "Prompt")
+
+    assert result is None
+    assert fake_session.stop_calls == 1
+    assert observed["bridge"].send_prompt_with_miniapp_calls == 1
+    assert observed["bridge"].send_prompt_calls == 1
 
 
 @pytest.mark.asyncio

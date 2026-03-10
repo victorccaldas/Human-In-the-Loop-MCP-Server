@@ -1,5 +1,6 @@
 # pyright: reportMissingImports=false
 
+import os
 import threading
 import time
 from pathlib import Path
@@ -17,6 +18,10 @@ from _telegram_shared_hub import (
     TelegramCredentials,
     UnsafeMixedTelegramStateError,
     _HUB_VERSION,
+    _acquire_startup_lock,
+    _kill_process,
+    _start_client_heartbeat,
+    _stop_client_heartbeat,
     _write_descriptor,
     _resolve_hub_launch_command,
     detect_unsafe_direct_polling,
@@ -64,6 +69,156 @@ def test_shared_mode_defaults_to_auto(monkeypatch):
     monkeypatch.delenv("HITL_SHARED_TELEGRAM_MODE", raising=False)
 
     assert get_shared_telegram_mode() == "auto"
+
+
+def test_shared_runtime_paths_keep_coordination_global_but_logs_repo_local(runtime_override, credentials):
+    """Hub logs should move under repo logs while lock/descriptor files stay host-global."""
+    paths = get_runtime_paths(credentials)
+
+    assert str(runtime_override) in paths.scope_dir
+    assert str(runtime_override) in paths.descriptor_path
+    assert "logs" in Path(paths.hub_log_path).parts
+    assert "shared-telegram" in Path(paths.hub_log_path).parts
+    assert "logs" in Path(paths.bypass_log_path).parts
+
+
+def test_kill_process_refuses_non_hub_targets(monkeypatch):
+    """Conflict recovery must not force-kill arbitrary live processes."""
+    calls = []
+
+    monkeypatch.setattr("_telegram_shared_hub._process_looks_like_shared_hub", lambda pid: False)
+    monkeypatch.setattr(
+        "_telegram_shared_hub.subprocess.run",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    assert _kill_process(4242, lambda *_args: None) is False
+    assert calls == []
+
+
+def test_kill_process_terminates_matching_shared_hub_on_windows(monkeypatch):
+    """Conflict recovery should terminate a verified competing hub process on Windows."""
+    calls = []
+    alive_checks = iter([True, False])
+
+    monkeypatch.setattr("_telegram_shared_hub._process_looks_like_shared_hub", lambda pid: True)
+    monkeypatch.setattr("_telegram_shared_hub.platform.system", lambda: "Windows")
+    monkeypatch.setattr(
+        "_telegram_shared_hub.subprocess.run",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or SimpleNamespace(
+            returncode=0,
+            stdout="ok",
+        ),
+    )
+    monkeypatch.setattr(
+        "_telegram_shared_hub._is_pid_alive_standalone",
+        lambda pid: next(alive_checks),
+    )
+    monkeypatch.setattr("_telegram_shared_hub.time.sleep", lambda *_args, **_kwargs: None)
+
+    assert _kill_process(4242, lambda *_args: None) is True
+    assert calls[0][0][0] == ["taskkill", "/F", "/PID", "4242"]
+
+
+def test_start_client_heartbeat_stops_previous_thread_before_switching_url(monkeypatch):
+    """Changing hub URL should stop and join the old heartbeat before starting a new one."""
+    state = {
+        "old_stop_set": False,
+        "old_join_timeout": None,
+        "new_started": False,
+    }
+
+    class _FakeStopEvent:
+        def set(self):
+            state["old_stop_set"] = True
+
+    class _FakeOldThread:
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            state["old_join_timeout"] = timeout
+
+    class _FakeNewThread:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+            self.started = False
+
+        def is_alive(self):
+            return self.started
+
+        def start(self):
+            self.started = True
+            state["new_started"] = True
+
+    monkeypatch.setattr("_telegram_shared_hub._heartbeat_thread", _FakeOldThread())
+    monkeypatch.setattr("_telegram_shared_hub._heartbeat_stop", _FakeStopEvent())
+    monkeypatch.setattr(
+        "_telegram_shared_hub._active_heartbeat_descriptor_url",
+        "http://old-hub",
+    )
+    monkeypatch.setattr("_telegram_shared_hub.threading.Thread", _FakeNewThread)
+
+    _start_client_heartbeat("http://new-hub")
+
+    assert state["old_stop_set"] is True
+    assert state["old_join_timeout"] == 6.0
+    assert state["new_started"] is True
+
+
+def test_stop_client_heartbeat_stops_and_joins_running_thread(monkeypatch):
+    """Explicit heartbeat shutdown should signal and join the live heartbeat thread."""
+    state = {
+        "stop_set": False,
+        "join_timeout": None,
+    }
+
+    class _FakeStopEvent:
+        def set(self):
+            state["stop_set"] = True
+
+    class _FakeThread:
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            state["join_timeout"] = timeout
+
+    monkeypatch.setattr("_telegram_shared_hub._heartbeat_thread", _FakeThread())
+    monkeypatch.setattr("_telegram_shared_hub._heartbeat_stop", _FakeStopEvent())
+    monkeypatch.setattr(
+        "_telegram_shared_hub._active_heartbeat_descriptor_url",
+        "http://hub",
+    )
+
+    _stop_client_heartbeat()
+
+    assert state["stop_set"] is True
+    assert state["join_timeout"] == 6.0
+
+
+def test_acquire_startup_lock_retries_after_concurrent_lock_removal(monkeypatch, tmp_path):
+    """Startup lock acquisition should retry when the stale lock disappears mid-check."""
+    lock_path = str(tmp_path / "hub-start.lock")
+    original_open = os.open
+    call_count = {"open": 0}
+
+    def _fake_open(path, flags):
+        call_count["open"] += 1
+        if call_count["open"] == 1:
+            raise FileExistsError()
+        return original_open(path, flags)
+
+    monkeypatch.setattr("_telegram_shared_hub.os.open", _fake_open)
+    monkeypatch.setattr(
+        "_telegram_shared_hub.os.path.getmtime",
+        lambda path: (_ for _ in ()).throw(FileNotFoundError()),
+    )
+    monkeypatch.setattr("_telegram_shared_hub.time.sleep", lambda *_args, **_kwargs: None)
+
+    assert _acquire_startup_lock(lock_path) is True
+    assert call_count["open"] == 2
 
 
 def test_shared_client_wait_for_reply_routes_reply(runtime_override, credentials):
@@ -344,6 +499,42 @@ def test_send_prompt_pins_message_in_direct_and_shared_modes(monkeypatch, shared
     assert calls[1][1]["message_id"] == 9001
 
 
+def test_send_prompt_long_prompt_uses_single_escape_truncation_suffix(monkeypatch):
+    """Long prompts should keep MarkdownV2 valid by escaping the truncation suffix once."""
+    calls = []
+
+    class _FakeResponse:
+        def __init__(self, status_code, payload=None, text=""):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.text = text
+
+        def json(self):
+            return self._payload
+
+    def _fake_post(url, json=None, timeout=None):
+        calls.append((url, json, timeout))
+        if url.endswith("/sendMessage"):
+            return _FakeResponse(200, {"result": {"message_id": 9003}})
+        if url.endswith("/pinChatMessage"):
+            return _FakeResponse(200, {"ok": True})
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr("_telegram_bridge.requests.post", _fake_post)
+
+    bridge = object.__new__(TelegramBridge)
+    bridge.bot_token = "123:token"
+    bridge.chat_id = "456"
+    bridge._update_offset = None
+    bridge._shared_hub_client = None
+
+    message_id = bridge.send_prompt("Title", "a" * 3905)
+
+    assert message_id == 9003
+    assert "\\.\\.\\. \\(truncated\\)" in calls[0][1]["text"]
+    assert "\\\\.\\\\.\\\\." not in calls[0][1]["text"]
+
+
 @pytest.mark.parametrize("shared_mode", [False, True])
 def test_send_prompt_with_miniapp_pins_message_in_direct_and_shared_modes(monkeypatch, shared_mode):
     """Mini App prompt sends should pin the new Telegram message in both operating modes."""
@@ -388,6 +579,47 @@ def test_send_prompt_with_miniapp_pins_message_in_direct_and_shared_modes(monkey
     ]
     assert calls[0][1]["reply_markup"]["inline_keyboard"][0][0]["web_app"]["url"] == "https://example.invalid/app"
     assert calls[1][1]["message_id"] == 9002
+
+
+def test_send_prompt_with_miniapp_long_prompt_uses_single_escape_truncation_suffix(monkeypatch):
+    """Mini App prompt sends should preserve MarkdownV2 validity for truncated prompts."""
+    calls = []
+
+    class _FakeResponse:
+        def __init__(self, status_code, payload=None, text=""):
+            self.status_code = status_code
+            self._payload = payload or {}
+            self.text = text
+
+        def json(self):
+            return self._payload
+
+    def _fake_post(url, json=None, timeout=None):
+        calls.append((url, json, timeout))
+        if url.endswith("/sendMessage"):
+            return _FakeResponse(200, {"result": {"message_id": 9004}})
+        if url.endswith("/pinChatMessage"):
+            return _FakeResponse(200, {"ok": True})
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr("_telegram_bridge.requests.post", _fake_post)
+
+    bridge = object.__new__(TelegramBridge)
+    bridge.bot_token = "123:token"
+    bridge.chat_id = "456"
+    bridge._update_offset = None
+    bridge._shared_hub_client = None
+
+    message_id = bridge.send_prompt_with_miniapp(
+        "Title",
+        "a" * 3905,
+        "https://example.invalid/app",
+        "Agent",
+    )
+
+    assert message_id == 9004
+    assert "\\.\\.\\. \\(truncated\\)" in calls[0][1]["text"]
+    assert "\\\\.\\\\.\\\\." not in calls[0][1]["text"]
 
 
 def test_unpin_message_is_best_effort_in_shared_mode(monkeypatch):
