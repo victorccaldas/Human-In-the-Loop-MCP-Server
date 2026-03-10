@@ -1,0 +1,1700 @@
+[2026-03-03 21:42:51] Cleanup reached. tg_bridge=True, tg_msg_id=52
+[2026-03-03 21:42:51] source=telegram, text_len=5
+[2026-03-03 21:42:52] Editing Telegram message (msg_id=52, status=Responded via Telegram)
+[2026-03-03 21:42:54] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 21:42:54] edit_message returned: True
+[2026-03-03 21:42:54] Final result: OK
+[2026-03-03 22:38:04] Cleanup reached. tg_bridge=True, tg_msg_id=54
+[2026-03-03 22:38:04] source=telegram, text_len=10
+[2026-03-03 22:38:04] Editing Telegram message (msg_id=54, status=Responded via Telegram)
+[2026-03-03 22:38:06] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 22:38:06] edit_message returned: True
+[2026-03-03 22:38:06] Final result: OK
+[2026-03-03 23:05:29] Cleanup reached. tg_bridge=True, tg_msg_id=56
+[2026-03-03 23:05:29] source=tkinter, text_len=326
+[2026-03-03 23:05:29] Editing Telegram message (msg_id=56, status=Answered via local dialog)
+[2026-03-03 23:05:31] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 23:05:31] edit_message returned: True
+[2026-03-03 23:05:31] Final result: OK
+[2026-03-03 23:09:38] Cleanup reached. tg_bridge=True, tg_msg_id=57
+[2026-03-03 23:09:38] source=tkinter, text_len=100
+[2026-03-03 23:09:38] Editing Telegram message (msg_id=57, status=Answered via local dialog)
+[2026-03-03 23:09:43] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 23:09:43] edit_message returned: True
+[2026-03-03 23:09:43] Final result: OK
+[2026-03-03 23:13:07] [react_to_message] Reaction '✅' on msg 59: FAILED HTTP 400 - {"ok":false,"error_code":400,"description":"Bad Request: REACTION_INVALID"}
+[2026-03-03 23:13:08] [react_to_message] Reaction '👍' set on msg 59: SUCCESS
+[2026-03-03 23:13:08] Cleanup reached. tg_bridge=True, tg_msg_id=58
+[2026-03-03 23:13:08] source=telegram, text_len=7
+[2026-03-03 23:13:08] Editing Telegram message (msg_id=58, status=Responded via Telegram)
+[2026-03-03 23:13:10] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 23:13:10] edit_message returned: True
+[2026-03-03 23:13:10] Final result: OK
+[2026-03-03 23:16:41] Cleanup reached. tg_bridge=True, tg_msg_id=60
+[2026-03-03 23:16:41] source=tkinter, text_len=328
+[2026-03-03 23:16:41] Editing Telegram message (msg_id=60, status=Answered via local dialog)
+[2026-03-03 23:16:43] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 23:16:43] edit_message returned: True
+[2026-03-03 23:16:43] Final result: OK
+[2026-03-03 23:22:57] [react_to_message] Reaction '✅' on msg 62: FAILED HTTP 400 - {"ok":false,"error_code":400,"description":"Bad Request: REACTION_INVALID"}
+[2026-03-03 23:22:58] [react_to_message] Reaction '👍' set on msg 62: SUCCESS
+[2026-03-03 23:22:58] Cleanup reached. tg_bridge=True, tg_msg_id=61
+[2026-03-03 23:22:58] source=telegram, text_len=79
+[2026-03-03 23:22:58] Editing Telegram message (msg_id=61, status=Responded via Telegram)
+[2026-03-03 23:23:00] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 23:23:00] edit_message returned: True
+[2026-03-03 23:23:00] Final result: OK
+[2026-03-03 23:26:00] [react_to_message] Reaction '👍' set on msg 65: SUCCESS
+[2026-03-03 23:26:00] Cleanup reached. tg_bridge=True, tg_msg_id=64
+[2026-03-03 23:26:00] source=telegram, text_len=4
+[2026-03-03 23:26:01] Editing Telegram message (msg_id=64, status=Responded via Telegram)
+[2026-03-03 23:26:02] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 23:26:02] edit_message returned: True
+[2026-03-03 23:26:02] Final result: OK
+[2026-03-03 23:56:25] Cleanup reached. tg_bridge=True, tg_msg_id=66
+[2026-03-03 23:56:25] source=tkinter, text_len=60
+[2026-03-03 23:56:25] Editing Telegram message (msg_id=66, status=Answered via local dialog)
+[2026-03-03 23:56:27] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 23:56:27] edit_message returned: True
+[2026-03-03 23:56:27] Final result: OK
+[2026-03-03 23:57:19] [react_to_message] Reaction '👍' set on msg 68: SUCCESS
+[2026-03-03 23:57:19] Cleanup reached. tg_bridge=True, tg_msg_id=67
+[2026-03-03 23:57:19] source=telegram, text_len=23
+[2026-03-03 23:57:20] Editing Telegram message (msg_id=67, status=Responded via Telegram)
+[2026-03-03 23:57:21] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-03 23:57:21] edit_message returned: True
+[2026-03-03 23:57:21] Final result: OK
+[2026-03-04 00:00:05] Cleanup reached. tg_bridge=True, tg_msg_id=69
+[2026-03-04 00:00:05] source=tkinter, text_len=348
+[2026-03-04 00:00:05] Editing Telegram message (msg_id=69, status=Answered via local dialog)
+[2026-03-04 00:00:06] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 00:00:06] edit_message returned: True
+[2026-03-04 00:00:06] Final result: OK
+[2026-03-04 00:01:57] Cleanup reached. tg_bridge=True, tg_msg_id=70
+[2026-03-04 00:01:57] source=tkinter, text_len=141
+[2026-03-04 00:01:57] Editing Telegram message (msg_id=70, status=Answered via local dialog)
+[2026-03-04 00:01:58] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 00:01:58] edit_message returned: True
+[2026-03-04 00:01:58] Final result: OK
+[2026-03-04 00:03:20] [react_to_message] Reaction '👍' set on msg 72: SUCCESS
+[2026-03-04 00:03:20] Cleanup reached. tg_bridge=True, tg_msg_id=71
+[2026-03-04 00:03:20] source=telegram, text_len=13
+[2026-03-04 00:03:20] Editing Telegram message (msg_id=71, status=Response via Telegram)
+[2026-03-04 00:03:22] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 00:03:22] edit_message returned: True
+[2026-03-04 00:03:22] Final result: OK
+[2026-03-04 00:04:02] [react_to_message] Reaction '👍' set on msg 74: SUCCESS
+[2026-03-04 00:04:02] Cleanup reached. tg_bridge=True, tg_msg_id=73
+[2026-03-04 00:04:02] source=telegram, text_len=12
+[2026-03-04 00:04:02] Editing Telegram message (msg_id=73, status=Response via Telegram)
+[2026-03-04 00:04:04] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 00:04:04] edit_message returned: True
+[2026-03-04 00:04:04] Final result: OK
+[2026-03-04 00:04:35] Cleanup reached. tg_bridge=True, tg_msg_id=75
+[2026-03-04 00:04:35] source=tkinter, text_len=9
+[2026-03-04 00:04:35] Editing Telegram message (msg_id=75, status=Answered via local dialog)
+[2026-03-04 00:04:36] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 00:04:36] edit_message returned: True
+[2026-03-04 00:04:36] Final result: OK
+[2026-03-04 00:07:34] [react_to_message] Reaction '👍' set on msg 77: SUCCESS
+[2026-03-04 00:07:34] Cleanup reached. tg_bridge=True, tg_msg_id=76
+[2026-03-04 00:07:34] source=telegram, text_len=50
+[2026-03-04 00:07:34] Editing Telegram message (msg_id=76, status=Response via Telegram)
+[2026-03-04 00:07:35] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 00:07:35] edit_message returned: True
+[2026-03-04 00:07:35] Final result: OK
+[2026-03-04 01:52:29] Cleanup reached. tg_bridge=True, tg_msg_id=78
+[2026-03-04 01:52:29] source=tkinter, text_len=446
+[2026-03-04 01:52:29] Editing Telegram message (msg_id=78, status=Answered via local dialog)
+[2026-03-04 01:52:31] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 01:52:31] edit_message returned: True
+[2026-03-04 01:52:31] Final result: OK
+[2026-03-04 01:58:48] Cleanup reached. tg_bridge=True, tg_msg_id=79
+[2026-03-04 01:58:48] source=tkinter, text_len=85
+[2026-03-04 01:58:48] Editing Telegram message (msg_id=79, status=Answered via local dialog)
+[2026-03-04 01:58:49] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 01:58:49] edit_message returned: True
+[2026-03-04 01:58:49] Final result: OK
+[2026-03-04 02:02:42] Cleanup reached. tg_bridge=True, tg_msg_id=80
+[2026-03-04 02:02:42] source=tkinter, text_len=206
+[2026-03-04 02:02:42] Editing Telegram message (msg_id=80, status=User answered via local dialog)
+[2026-03-04 02:02:43] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 02:02:43] edit_message returned: True
+[2026-03-04 02:02:43] Final result: OK
+[2026-03-04 02:14:46] Cleanup reached. tg_bridge=True, tg_msg_id=81
+[2026-03-04 02:14:46] source=tkinter, text_len=997
+[2026-03-04 02:14:46] Editing Telegram message (msg_id=81, status=User answered via local dialog)
+[2026-03-04 02:14:47] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 02:14:47] edit_message returned: True
+[2026-03-04 02:14:47] Final result: OK
+[2026-03-04 02:21:25] [react_to_message] Reaction '👍' set on msg 83: SUCCESS
+[2026-03-04 02:21:25] Cleanup reached. tg_bridge=True, tg_msg_id=82
+[2026-03-04 02:21:25] source=telegram, text_len=18
+[2026-03-04 02:21:26] Editing Telegram message (msg_id=82, status=Response via Telegram)
+[2026-03-04 02:21:27] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 02:21:27] edit_message returned: True
+[2026-03-04 02:21:27] Final result: OK
+[2026-03-04 02:24:16] Cleanup reached. tg_bridge=True, tg_msg_id=84
+[2026-03-04 02:24:16] source=tkinter, text_len=50
+[2026-03-04 02:24:16] Editing Telegram message (msg_id=84, status=User answered via local dialog)
+[2026-03-04 02:24:17] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 02:24:17] edit_message returned: True
+[2026-03-04 02:24:17] Final result: OK
+[2026-03-04 03:34:21] Cleanup reached. tg_bridge=True, tg_msg_id=85
+[2026-03-04 03:34:21] source=tkinter, text_len=418
+[2026-03-04 03:34:21] Editing Telegram message (msg_id=85, status=User answered via local dialog)
+[2026-03-04 03:34:22] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 03:34:22] edit_message returned: True
+[2026-03-04 03:34:22] Final result: OK
+[2026-03-04 03:41:06] Cleanup reached. tg_bridge=True, tg_msg_id=86
+[2026-03-04 03:41:06] source=tkinter, text_len=59
+[2026-03-04 03:41:06] Editing Telegram message (msg_id=86, status=User answered via local dialog)
+[2026-03-04 03:41:07] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 03:41:07] edit_message returned: True
+[2026-03-04 03:41:07] Final result: OK
+[2026-03-04 03:46:35] Cleanup reached. tg_bridge=True, tg_msg_id=87
+[2026-03-04 03:46:35] source=tkinter, text_len=59
+[2026-03-04 03:46:35] Editing Telegram message (msg_id=87, status=User answered via local dialog)
+[2026-03-04 03:46:37] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 03:46:37] edit_message returned: True
+[2026-03-04 03:46:37] Final result: OK
+[2026-03-04 03:48:52] Cleanup reached. tg_bridge=True, tg_msg_id=88
+[2026-03-04 03:48:52] source=tkinter, text_len=26
+[2026-03-04 03:48:52] Editing Telegram message (msg_id=88, status=User answered via local dialog)
+[2026-03-04 03:48:54] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 03:48:54] edit_message returned: True
+[2026-03-04 03:48:54] Final result: OK
+[2026-03-04 03:56:45] Cleanup reached. tg_bridge=True, tg_msg_id=89
+[2026-03-04 03:56:45] source=tkinter, text_len=212
+[2026-03-04 03:56:45] Editing Telegram message (msg_id=89, status=User answered via local dialog)
+[2026-03-04 03:56:46] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 03:56:46] edit_message returned: True
+[2026-03-04 03:56:46] Final result: OK
+[2026-03-04 04:03:40] [react_to_message] Reaction '👍' set on msg 91: SUCCESS
+[2026-03-04 04:03:40] Cleanup reached. tg_bridge=True, tg_msg_id=90
+[2026-03-04 04:03:40] source=telegram, text_len=84
+[2026-03-04 04:03:41] Editing Telegram message (msg_id=90, status=Response via Telegram)
+[2026-03-04 04:03:42] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:03:42] edit_message returned: True
+[2026-03-04 04:03:42] Final result: OK
+[2026-03-04 04:08:30] Cleanup reached. tg_bridge=True, tg_msg_id=92
+[2026-03-04 04:08:30] source=telegram, text_len=4
+[2026-03-04 04:08:30] Editing Telegram message (msg_id=92, status=Response via Telegram)
+[2026-03-04 04:08:31] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:08:31] edit_message returned: True
+[2026-03-04 04:08:31] Final result: OK
+[2026-03-04 04:10:58] Cleanup reached. tg_bridge=True, tg_msg_id=93
+[2026-03-04 04:10:58] source=tkinter, text_len=321
+[2026-03-04 04:10:58] Editing Telegram message (msg_id=93, status=User answered via local dialog)
+[2026-03-04 04:10:59] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:10:59] edit_message returned: True
+[2026-03-04 04:10:59] Final result: OK
+[2026-03-04 04:21:54] Cleanup reached. tg_bridge=True, tg_msg_id=94
+[2026-03-04 04:21:54] source=tkinter, text_len=306
+[2026-03-04 04:21:54] Editing Telegram message (msg_id=94, status=User answered via local dialog)
+[2026-03-04 04:21:56] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:21:56] edit_message returned: True
+[2026-03-04 04:21:56] Final result: OK
+[2026-03-04 04:33:59] Cleanup reached. tg_bridge=True, tg_msg_id=95
+[2026-03-04 04:33:59] source=tkinter, text_len=196
+[2026-03-04 04:33:59] Editing Telegram message (msg_id=95, status=User answered via local dialog)
+[2026-03-04 04:34:01] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:34:01] edit_message returned: True
+[2026-03-04 04:34:01] Final result: OK
+[2026-03-04 04:36:05] Cleanup reached. tg_bridge=True, tg_msg_id=96
+[2026-03-04 04:36:05] source=tkinter, text_len=265
+[2026-03-04 04:36:05] Editing Telegram message (msg_id=96, status=User answered via local dialog)
+[2026-03-04 04:36:11] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:36:11] edit_message returned: True
+[2026-03-04 04:36:11] Final result: OK
+[2026-03-04 04:38:37] Cleanup reached. tg_bridge=True, tg_msg_id=97
+[2026-03-04 04:38:37] source=tkinter, text_len=247
+[2026-03-04 04:38:37] Editing Telegram message (msg_id=97, status=User answered via local dialog)
+[2026-03-04 04:38:39] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:38:39] edit_message returned: True
+[2026-03-04 04:38:39] Final result: OK
+[2026-03-04 04:45:14] Cleanup reached. tg_bridge=True, tg_msg_id=98
+[2026-03-04 04:45:14] source=tkinter, text_len=62
+[2026-03-04 04:45:14] Editing Telegram message (msg_id=98, status=User answered via local dialog)
+[2026-03-04 04:45:15] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:45:15] edit_message returned: True
+[2026-03-04 04:45:15] Final result: OK
+[2026-03-04 04:46:43] Cleanup reached. tg_bridge=True, tg_msg_id=99
+[2026-03-04 04:46:43] source=telegram, text_len=60
+[2026-03-04 04:46:44] Editing Telegram message (msg_id=99, status=Response via Telegram)
+[2026-03-04 04:46:45] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:46:45] edit_message returned: True
+[2026-03-04 04:46:45] Final result: OK
+[2026-03-04 04:48:54] Cleanup reached. tg_bridge=True, tg_msg_id=100
+[2026-03-04 04:48:54] source=telegram, text_len=226
+[2026-03-04 04:48:55] Editing Telegram message (msg_id=100, status=Response via Telegram)
+[2026-03-04 04:48:56] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:48:56] edit_message returned: True
+[2026-03-04 04:48:56] Final result: OK
+[2026-03-04 04:53:14] Cleanup reached. tg_bridge=True, tg_msg_id=101
+[2026-03-04 04:53:14] source=tkinter, text_len=44
+[2026-03-04 04:53:14] Editing Telegram message (msg_id=101, status=User answered via local dialog)
+[2026-03-04 04:53:15] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:53:15] edit_message returned: True
+[2026-03-04 04:53:15] Final result: OK
+[2026-03-04 04:56:43] Cleanup reached. tg_bridge=True, tg_msg_id=102
+[2026-03-04 04:56:43] source=tkinter, text_len=426
+[2026-03-04 04:56:43] Editing Telegram message (msg_id=102, status=User answered via local dialog)
+[2026-03-04 04:56:44] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:56:44] edit_message returned: True
+[2026-03-04 04:56:44] Final result: OK
+[2026-03-04 04:58:43] [react_to_message] Reaction '👍' set on msg 104: SUCCESS
+[2026-03-04 04:58:43] Cleanup reached. tg_bridge=True, tg_msg_id=103
+[2026-03-04 04:58:43] source=telegram, text_len=425
+[2026-03-04 04:58:44] Editing Telegram message (msg_id=103, status=Response via Telegram)
+[2026-03-04 04:58:45] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 04:58:45] edit_message returned: True
+[2026-03-04 04:58:45] Final result: OK
+[2026-03-04 05:02:24] Cleanup reached. tg_bridge=True, tg_msg_id=105
+[2026-03-04 05:02:24] source=tkinter, text_len=4
+[2026-03-04 05:02:24] Editing Telegram message (msg_id=105, status=User answered via local dialog)
+[2026-03-04 05:02:25] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 05:02:25] edit_message returned: True
+[2026-03-04 05:02:25] Final result: OK
+[2026-03-04 05:03:03] Cleanup reached. tg_bridge=True, tg_msg_id=106
+[2026-03-04 05:03:03] source=tkinter, text_len=135
+[2026-03-04 05:03:03] Editing Telegram message (msg_id=106, status=User answered via local dialog)
+[2026-03-04 05:03:04] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 05:03:04] edit_message returned: True
+[2026-03-04 05:03:04] Final result: OK
+[2026-03-04 05:06:40] Cleanup reached. tg_bridge=True, tg_msg_id=107
+[2026-03-04 05:06:40] source=tkinter, text_len=172
+[2026-03-04 05:06:40] Editing Telegram message (msg_id=107, status=User answered via local dialog)
+[2026-03-04 05:06:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 05:06:41] edit_message returned: True
+[2026-03-04 05:06:41] Final result: OK
+[2026-03-04 14:29:27] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-04 14:29:27] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-04 14:38:14] Cleanup reached. tg_bridge=True, tg_msg_id=108
+[2026-03-04 14:38:14] source=tkinter, text_len=43
+[2026-03-04 14:38:14] Editing Telegram message (msg_id=108, status=User answered via local dialog)
+[2026-03-04 14:38:15] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 14:38:15] edit_message returned: True
+[2026-03-04 14:38:15] Final result: OK
+[2026-03-04 14:42:12] Cleanup reached. tg_bridge=True, tg_msg_id=109
+[2026-03-04 14:42:12] source=tkinter, text_len=73
+[2026-03-04 14:42:12] Editing Telegram message (msg_id=109, status=User answered via local dialog)
+[2026-03-04 14:42:14] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 14:42:14] edit_message returned: True
+[2026-03-04 14:42:14] Final result: OK
+[2026-03-04 14:49:53] Cleanup reached. tg_bridge=True, tg_msg_id=110
+[2026-03-04 14:49:53] source=tkinter, text_len=91
+[2026-03-04 14:49:53] Editing Telegram message (msg_id=110, status=User answered via local dialog)
+[2026-03-04 14:49:55] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 14:49:55] edit_message returned: True
+[2026-03-04 14:49:55] Final result: OK
+[2026-03-04 14:53:02] Cleanup reached. tg_bridge=True, tg_msg_id=111
+[2026-03-04 14:53:02] source=tkinter, text_len=367
+[2026-03-04 14:53:02] Editing Telegram message (msg_id=111, status=User answered via local dialog)
+[2026-03-04 14:53:04] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 14:53:04] edit_message returned: True
+[2026-03-04 14:53:04] Final result: OK
+[2026-03-04 15:23:43] Cleanup reached. tg_bridge=True, tg_msg_id=112
+[2026-03-04 15:23:43] source=tkinter, text_len=180
+[2026-03-04 15:23:43] Editing Telegram message (msg_id=112, status=User answered via local dialog)
+[2026-03-04 15:23:45] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 15:23:45] edit_message returned: True
+[2026-03-04 15:23:45] Final result: OK
+[2026-03-04 15:29:28] Cleanup reached. tg_bridge=True, tg_msg_id=113
+[2026-03-04 15:29:28] source=tkinter, text_len=245
+[2026-03-04 15:29:28] Editing Telegram message (msg_id=113, status=User answered via local dialog)
+[2026-03-04 15:29:31] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 15:29:31] edit_message returned: True
+[2026-03-04 15:29:31] Final result: OK
+[2026-03-04 15:33:47] Cleanup reached. tg_bridge=True, tg_msg_id=114
+[2026-03-04 15:33:47] source=tkinter, text_len=109
+[2026-03-04 15:33:47] Editing Telegram message (msg_id=114, status=User answered via local dialog)
+[2026-03-04 15:33:48] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 15:33:48] edit_message returned: True
+[2026-03-04 15:33:48] Final result: OK
+[2026-03-04 15:49:52] Cleanup reached. tg_bridge=True, tg_msg_id=115
+[2026-03-04 15:49:52] source=tkinter, text_len=1001
+[2026-03-04 15:49:52] Editing Telegram message (msg_id=115, status=User answered via local dialog)
+[2026-03-04 15:49:53] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 15:49:53] edit_message returned: True
+[2026-03-04 15:49:53] Final result: OK
+[2026-03-04 16:06:23] Cleanup reached. tg_bridge=True, tg_msg_id=116
+[2026-03-04 16:06:23] source=tkinter, text_len=54
+[2026-03-04 16:06:23] Editing Telegram message (msg_id=116, status=User answered via local dialog)
+[2026-03-04 16:06:25] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:06:25] edit_message returned: True
+[2026-03-04 16:06:25] Final result: OK
+[2026-03-04 16:13:49] Cleanup reached. tg_bridge=True, tg_msg_id=117
+[2026-03-04 16:13:49] source=tkinter, text_len=73
+[2026-03-04 16:13:49] Editing Telegram message (msg_id=117, status=User answered via local dialog)
+[2026-03-04 16:13:55] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:13:55] edit_message returned: True
+[2026-03-04 16:13:55] Final result: OK
+[2026-03-04 16:15:32] Cleanup reached. tg_bridge=True, tg_msg_id=118
+[2026-03-04 16:15:32] source=tkinter, text_len=86
+[2026-03-04 16:15:32] Editing Telegram message (msg_id=118, status=User answered via local dialog)
+[2026-03-04 16:15:38] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:15:38] edit_message returned: True
+[2026-03-04 16:15:38] Final result: OK
+[2026-03-04 16:18:40] Cleanup reached. tg_bridge=True, tg_msg_id=119
+[2026-03-04 16:18:40] source=tkinter, text_len=129
+[2026-03-04 16:18:40] Editing Telegram message (msg_id=119, status=User answered via local dialog)
+[2026-03-04 16:18:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:18:41] edit_message returned: True
+[2026-03-04 16:18:41] Final result: OK
+[2026-03-04 16:20:43] Cleanup reached. tg_bridge=True, tg_msg_id=120
+[2026-03-04 16:20:43] source=tkinter, text_len=137
+[2026-03-04 16:20:43] Editing Telegram message (msg_id=120, status=User answered via local dialog)
+[2026-03-04 16:20:45] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:20:45] edit_message returned: True
+[2026-03-04 16:20:45] Final result: OK
+[2026-03-04 16:30:02] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-04 16:30:02] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-04 16:31:58] Cleanup reached. tg_bridge=True, tg_msg_id=121
+[2026-03-04 16:31:58] source=tkinter, text_len=56
+[2026-03-04 16:31:58] Editing Telegram message (msg_id=121, status=User answered via local dialog)
+[2026-03-04 16:31:59] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:31:59] edit_message returned: True
+[2026-03-04 16:31:59] Final result: OK
+[2026-03-04 16:33:41] Cleanup reached. tg_bridge=True, tg_msg_id=122
+[2026-03-04 16:33:41] source=tkinter, text_len=106
+[2026-03-04 16:33:41] Editing Telegram message (msg_id=122, status=User answered via local dialog)
+[2026-03-04 16:33:43] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:33:43] edit_message returned: True
+[2026-03-04 16:33:43] Final result: OK
+[2026-03-04 16:39:46] Cleanup reached. tg_bridge=True, tg_msg_id=123
+[2026-03-04 16:39:46] source=tkinter, text_len=37
+[2026-03-04 16:39:46] Editing Telegram message (msg_id=123, status=User answered via local dialog)
+[2026-03-04 16:39:58] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:39:58] edit_message returned: True
+[2026-03-04 16:39:58] Final result: OK
+[2026-03-04 16:42:43] Cleanup reached. tg_bridge=True, tg_msg_id=124
+[2026-03-04 16:42:43] source=tkinter, text_len=106
+[2026-03-04 16:42:43] Editing Telegram message (msg_id=124, status=User answered via local dialog)
+[2026-03-04 16:42:44] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:42:44] edit_message returned: True
+[2026-03-04 16:42:44] Final result: OK
+[2026-03-04 16:46:17] Cleanup reached. tg_bridge=True, tg_msg_id=125
+[2026-03-04 16:46:17] source=tkinter, text_len=13
+[2026-03-04 16:46:17] Editing Telegram message (msg_id=125, status=User answered via local dialog)
+[2026-03-04 16:46:18] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 16:46:18] edit_message returned: True
+[2026-03-04 16:46:18] Final result: OK
+[2026-03-04 17:18:17] Cleanup reached. tg_bridge=True, tg_msg_id=126
+[2026-03-04 17:18:17] source=tkinter, text_len=6629
+[2026-03-04 17:18:17] Editing Telegram message (msg_id=126, status=User answered via local dialog)
+[2026-03-04 17:18:18] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 17:18:18] edit_message returned: True
+[2026-03-04 17:18:18] Final result: OK
+[2026-03-04 17:22:01] Cleanup reached. tg_bridge=True, tg_msg_id=127
+[2026-03-04 17:22:01] source=tkinter, text_len=60
+[2026-03-04 17:22:01] Editing Telegram message (msg_id=127, status=User answered via local dialog)
+[2026-03-04 17:22:03] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 17:22:03] edit_message returned: True
+[2026-03-04 17:22:03] Final result: OK
+[2026-03-04 17:42:27] Cleanup reached. tg_bridge=True, tg_msg_id=128
+[2026-03-04 17:42:27] source=tkinter, text_len=64
+[2026-03-04 17:42:27] Editing Telegram message (msg_id=128, status=User answered via local dialog)
+[2026-03-04 17:42:30] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 17:42:30] edit_message returned: True
+[2026-03-04 17:42:30] Final result: OK
+[2026-03-04 21:40:57] [react_to_message] Reaction '👍' set on msg 144: SUCCESS
+[2026-03-04 21:40:58] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 21:49:36] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 23:07:18] Cleanup reached. tg_bridge=True, tg_msg_id=155
+[2026-03-04 23:07:18] source=tkinter, text_len=48
+[2026-03-04 23:07:18] Editing Telegram message (msg_id=155, status=User answered via local dialog)
+[2026-03-04 23:07:20] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 23:07:20] edit_message returned: True
+[2026-03-04 23:07:20] Final result: OK
+[2026-03-04 23:18:02] Cleanup reached. tg_bridge=True, tg_msg_id=157
+[2026-03-04 23:18:02] source=tkinter, text_len=97
+[2026-03-04 23:18:02] Editing Telegram message (msg_id=157, status=User answered via local dialog)
+[2026-03-04 23:18:03] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 23:18:03] edit_message returned: True
+[2026-03-04 23:18:03] Final result: OK
+[2026-03-04 23:20:44] Cleanup reached. tg_bridge=True, tg_msg_id=166
+[2026-03-04 23:20:44] source=tkinter, text_len=9
+[2026-03-04 23:20:44] Editing Telegram message (msg_id=166, status=User answered via local dialog)
+[2026-03-04 23:20:45] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 23:20:45] edit_message returned: True
+[2026-03-04 23:20:45] Final result: OK
+[2026-03-04 23:36:26] Cleanup reached. tg_bridge=True, tg_msg_id=168
+[2026-03-04 23:36:26] source=tkinter, text_len=91
+[2026-03-04 23:36:26] Editing Telegram message (msg_id=168, status=User answered via local dialog)
+[2026-03-04 23:36:27] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-04 23:36:27] edit_message returned: True
+[2026-03-04 23:36:27] Final result: OK
+[2026-03-05 16:54:03] Cleanup reached. tg_bridge=True, tg_msg_id=179
+[2026-03-05 16:54:03] source=tkinter, text_len=486
+[2026-03-05 16:54:03] Editing Telegram message (msg_id=179, status=User answered via local dialog)
+[2026-03-05 16:54:04] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 16:54:04] edit_message returned: True
+[2026-03-05 16:54:04] Final result: OK
+[2026-03-05 16:57:01] Cleanup reached. tg_bridge=True, tg_msg_id=180
+[2026-03-05 16:57:01] source=tkinter, text_len=199
+[2026-03-05 16:57:01] Editing Telegram message (msg_id=180, status=User answered via local dialog)
+[2026-03-05 16:57:02] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 16:57:02] edit_message returned: True
+[2026-03-05 16:57:02] Final result: OK
+[2026-03-05 17:11:34] Cleanup reached. tg_bridge=True, tg_msg_id=181
+[2026-03-05 17:11:34] source=tkinter, text_len=14
+[2026-03-05 17:11:34] Editing Telegram message (msg_id=181, status=User answered via local dialog)
+[2026-03-05 17:11:36] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 17:11:36] edit_message returned: True
+[2026-03-05 17:11:36] Final result: OK
+[2026-03-05 20:24:59] Cleanup reached. tg_bridge=True, tg_msg_id=183
+[2026-03-05 20:24:59] source=tkinter, text_len=185
+[2026-03-05 20:24:59] Editing Telegram message (msg_id=183, status=User answered via local dialog)
+[2026-03-05 20:25:00] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 20:25:00] edit_message returned: True
+[2026-03-05 20:25:00] Final result: OK
+[2026-03-05 20:29:37] Cleanup reached. tg_bridge=True, tg_msg_id=185
+[2026-03-05 20:29:37] source=tkinter, text_len=19
+[2026-03-05 20:29:37] Editing Telegram message (msg_id=185, status=User answered via local dialog)
+[2026-03-05 20:29:38] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 20:29:38] edit_message returned: True
+[2026-03-05 20:29:38] Final result: OK
+[2026-03-05 20:40:04] Cleanup reached. tg_bridge=True, tg_msg_id=187
+[2026-03-05 20:40:04] source=tkinter, text_len=170
+[2026-03-05 20:40:04] Editing Telegram message (msg_id=187, status=User answered via local dialog)
+[2026-03-05 20:40:05] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 20:40:05] edit_message returned: True
+[2026-03-05 20:40:05] Final result: OK
+[2026-03-05 22:53:44] Cleanup reached. tg_bridge=True, tg_msg_id=191
+[2026-03-05 22:53:44] source=tkinter, text_len=632
+[2026-03-05 22:53:44] Editing Telegram message (msg_id=191, status=User answered via local dialog)
+[2026-03-05 22:53:45] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 22:53:45] edit_message returned: True
+[2026-03-05 22:53:45] Final result: OK
+[2026-03-05 23:34:50] Cleanup reached. tg_bridge=True, tg_msg_id=196
+[2026-03-05 23:34:50] source=tkinter, text_len=110
+[2026-03-05 23:34:50] Editing Telegram message (msg_id=196, status=User answered via local dialog)
+[2026-03-05 23:34:51] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 23:34:51] edit_message returned: True
+[2026-03-05 23:34:51] Final result: OK
+[2026-03-05 23:38:00] Cleanup reached. tg_bridge=True, tg_msg_id=197
+[2026-03-05 23:38:00] source=tkinter, text_len=295
+[2026-03-05 23:38:00] Editing Telegram message (msg_id=197, status=User answered via local dialog)
+[2026-03-05 23:38:02] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-05 23:38:02] edit_message returned: True
+[2026-03-05 23:38:02] Final result: OK
+[2026-03-06 00:01:51] Cleanup reached. tg_bridge=True, tg_msg_id=198
+[2026-03-06 00:01:51] source=tkinter, text_len=166
+[2026-03-06 00:01:51] Editing Telegram message (msg_id=198, status=User answered via local dialog)
+[2026-03-06 00:01:53] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 00:01:53] edit_message returned: True
+[2026-03-06 00:01:53] Final result: OK
+[2026-03-06 00:08:25] Cleanup reached. tg_bridge=True, tg_msg_id=200
+[2026-03-06 00:08:25] source=tkinter, text_len=42
+[2026-03-06 00:08:25] Editing Telegram message (msg_id=200, status=User answered via local dialog)
+[2026-03-06 00:08:26] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 00:08:26] edit_message returned: True
+[2026-03-06 00:08:26] Final result: OK
+[2026-03-06 00:17:22] Cleanup reached. tg_bridge=True, tg_msg_id=202
+[2026-03-06 00:17:22] source=tkinter, text_len=61
+[2026-03-06 00:17:22] Editing Telegram message (msg_id=202, status=User answered via local dialog)
+[2026-03-06 00:17:24] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 00:17:24] edit_message returned: True
+[2026-03-06 00:17:24] Final result: OK
+[2026-03-06 01:09:50] Cleanup reached. tg_bridge=True, tg_msg_id=204
+[2026-03-06 01:09:50] source=tkinter, text_len=885
+[2026-03-06 01:09:50] Editing Telegram message (msg_id=204, status=User answered via local dialog)
+[2026-03-06 01:09:52] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 01:09:52] edit_message returned: True
+[2026-03-06 01:09:52] Final result: OK
+[2026-03-06 01:27:12] Cleanup reached. tg_bridge=True, tg_msg_id=211
+[2026-03-06 01:27:12] source=tkinter, text_len=22
+[2026-03-06 01:27:12] Editing Telegram message (msg_id=211, status=User answered via local dialog)
+[2026-03-06 01:27:13] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 01:27:13] edit_message returned: True
+[2026-03-06 01:27:13] Final result: OK
+[2026-03-06 01:35:40] Cleanup reached. tg_bridge=True, tg_msg_id=214
+[2026-03-06 01:35:40] source=tkinter, text_len=65
+[2026-03-06 01:35:40] Editing Telegram message (msg_id=214, status=User answered via local dialog)
+[2026-03-06 01:35:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 01:35:41] edit_message returned: True
+[2026-03-06 01:35:41] Final result: OK
+[2026-03-06 01:42:16] Cleanup reached. tg_bridge=True, tg_msg_id=216
+[2026-03-06 01:42:16] source=tkinter, text_len=142
+[2026-03-06 01:42:16] Editing Telegram message (msg_id=216, status=User answered via local dialog)
+[2026-03-06 01:42:18] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 01:42:18] edit_message returned: True
+[2026-03-06 01:42:18] Final result: OK
+[2026-03-06 01:57:11] Cleanup reached. tg_bridge=True, tg_msg_id=217
+[2026-03-06 01:57:11] source=tkinter, text_len=234
+[2026-03-06 01:57:11] Editing Telegram message (msg_id=217, status=User answered via local dialog)
+[2026-03-06 01:57:13] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 01:57:13] edit_message returned: True
+[2026-03-06 01:57:13] Final result: OK
+[2026-03-06 02:24:57] Cleanup reached. tg_bridge=True, tg_msg_id=219
+[2026-03-06 02:24:57] source=tkinter, text_len=303
+[2026-03-06 02:24:57] Editing Telegram message (msg_id=219, status=User answered via local dialog)
+[2026-03-06 02:24:58] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 02:24:58] edit_message returned: True
+[2026-03-06 02:24:58] Final result: OK
+[2026-03-06 22:00:23] Cleanup reached. tg_bridge=True, tg_msg_id=266
+[2026-03-06 22:00:23] source=tkinter, text_len=0
+[2026-03-06 22:00:23] Editing Telegram message (msg_id=266, status=Cancelled locally)
+[2026-03-06 22:00:27] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 22:00:27] edit_message returned: True
+[2026-03-06 22:00:27] Final result: OK
+[2026-03-06 22:13:02] Cleanup reached. tg_bridge=True, tg_msg_id=267
+[2026-03-06 22:13:02] source=tkinter, text_len=850
+[2026-03-06 22:13:02] Editing Telegram message (msg_id=267, status=User answered via local dialog)
+[2026-03-06 22:13:04] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 22:13:04] edit_message returned: True
+[2026-03-06 22:13:04] Final result: OK
+[2026-03-06 22:20:27] Cleanup reached. tg_bridge=True, tg_msg_id=269
+[2026-03-06 22:20:27] source=tkinter, text_len=0
+[2026-03-06 22:20:27] Editing Telegram message (msg_id=269, status=Cancelled locally)
+[2026-03-06 22:20:29] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 22:20:29] edit_message returned: True
+[2026-03-06 22:20:29] Final result: OK
+[2026-03-06 22:24:54] Cleanup reached. tg_bridge=True, tg_msg_id=270
+[2026-03-06 22:24:54] source=tkinter, text_len=0
+[2026-03-06 22:24:54] Editing Telegram message (msg_id=270, status=Cancelled locally)
+[2026-03-06 22:24:56] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 22:24:56] edit_message returned: True
+[2026-03-06 22:24:56] Final result: OK
+[2026-03-06 22:32:30] Cleanup reached. tg_bridge=True, tg_msg_id=271
+[2026-03-06 22:32:30] source=tkinter, text_len=303
+[2026-03-06 22:32:30] Editing Telegram message (msg_id=271, status=User answered via local dialog)
+[2026-03-06 22:32:31] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 22:32:31] edit_message returned: True
+[2026-03-06 22:32:31] Final result: OK
+[2026-03-06 22:33:58] Cleanup reached. tg_bridge=True, tg_msg_id=272
+[2026-03-06 22:33:58] source=tkinter, text_len=0
+[2026-03-06 22:33:58] Editing Telegram message (msg_id=272, status=Cancelled locally)
+[2026-03-06 22:33:59] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 22:33:59] edit_message returned: True
+[2026-03-06 22:33:59] Final result: OK
+[2026-03-06 22:50:26] Cleanup reached. tg_bridge=True, tg_msg_id=273
+[2026-03-06 22:50:26] source=tkinter, text_len=3168
+[2026-03-06 22:50:26] Editing Telegram message (msg_id=273, status=User answered via local dialog)
+[2026-03-06 22:50:27] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 22:50:27] edit_message returned: True
+[2026-03-06 22:50:27] Final result: OK
+[2026-03-06 23:02:52] Cleanup reached. tg_bridge=True, tg_msg_id=274
+[2026-03-06 23:02:52] source=tkinter, text_len=3487
+[2026-03-06 23:02:52] Editing Telegram message (msg_id=274, status=User answered via local dialog)
+[2026-03-06 23:02:54] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:02:54] edit_message returned: True
+[2026-03-06 23:02:54] Final result: OK
+[2026-03-06 23:10:39] Cleanup reached. tg_bridge=True, tg_msg_id=275
+[2026-03-06 23:10:39] source=tkinter, text_len=279
+[2026-03-06 23:10:39] Editing Telegram message (msg_id=275, status=User answered via local dialog)
+[2026-03-06 23:10:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:10:41] edit_message returned: True
+[2026-03-06 23:10:41] Final result: OK
+[2026-03-06 23:13:46] Cleanup reached. tg_bridge=True, tg_msg_id=276
+[2026-03-06 23:13:46] source=tkinter, text_len=907
+[2026-03-06 23:13:46] Editing Telegram message (msg_id=276, status=User answered via local dialog)
+[2026-03-06 23:13:47] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:13:47] edit_message returned: True
+[2026-03-06 23:13:47] Final result: OK
+[2026-03-06 23:20:55] Cleanup reached. tg_bridge=True, tg_msg_id=277
+[2026-03-06 23:20:55] source=tkinter, text_len=201
+[2026-03-06 23:20:55] Editing Telegram message (msg_id=277, status=User answered via local dialog)
+[2026-03-06 23:20:57] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:20:57] edit_message returned: True
+[2026-03-06 23:20:57] Final result: OK
+[2026-03-06 23:23:46] Cleanup reached. tg_bridge=True, tg_msg_id=278
+[2026-03-06 23:23:46] source=tkinter, text_len=241
+[2026-03-06 23:23:46] Editing Telegram message (msg_id=278, status=User answered via local dialog)
+[2026-03-06 23:23:47] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:23:47] edit_message returned: True
+[2026-03-06 23:23:47] Final result: OK
+[2026-03-06 23:26:04] Cleanup reached. tg_bridge=True, tg_msg_id=279
+[2026-03-06 23:26:04] source=tkinter, text_len=115
+[2026-03-06 23:26:04] Editing Telegram message (msg_id=279, status=User answered via local dialog)
+[2026-03-06 23:26:06] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:26:06] edit_message returned: True
+[2026-03-06 23:26:06] Final result: OK
+[2026-03-06 23:30:47] Cleanup reached. tg_bridge=True, tg_msg_id=280
+[2026-03-06 23:30:47] source=tkinter, text_len=1284
+[2026-03-06 23:30:47] Editing Telegram message (msg_id=280, status=User answered via local dialog)
+[2026-03-06 23:30:48] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:30:48] edit_message returned: True
+[2026-03-06 23:30:48] Final result: OK
+[2026-03-06 23:40:40] Cleanup reached. tg_bridge=True, tg_msg_id=281
+[2026-03-06 23:40:40] source=tkinter, text_len=2554
+[2026-03-06 23:40:40] Editing Telegram message (msg_id=281, status=User answered via local dialog)
+[2026-03-06 23:40:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:40:41] edit_message returned: True
+[2026-03-06 23:40:41] Final result: OK
+[2026-03-06 23:43:01] Cleanup reached. tg_bridge=True, tg_msg_id=282
+[2026-03-06 23:43:01] source=tkinter, text_len=368
+[2026-03-06 23:43:01] Editing Telegram message (msg_id=282, status=User answered via local dialog)
+[2026-03-06 23:43:05] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:43:05] edit_message returned: True
+[2026-03-06 23:43:05] Final result: OK
+[2026-03-06 23:44:48] Cleanup reached. tg_bridge=True, tg_msg_id=283
+[2026-03-06 23:44:48] source=tkinter, text_len=328
+[2026-03-06 23:44:48] Editing Telegram message (msg_id=283, status=User answered via local dialog)
+[2026-03-06 23:44:50] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:44:50] edit_message returned: True
+[2026-03-06 23:44:50] Final result: OK
+[2026-03-06 23:50:12] Cleanup reached. tg_bridge=True, tg_msg_id=284
+[2026-03-06 23:50:12] source=telegram, text_len=147
+[2026-03-06 23:50:13] Editing Telegram message (msg_id=284, status=Response via Telegram)
+[2026-03-06 23:50:14] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:50:14] edit_message returned: True
+[2026-03-06 23:50:14] Final result: OK
+[2026-03-06 23:52:44] Cleanup reached. tg_bridge=True, tg_msg_id=285
+[2026-03-06 23:52:44] source=tkinter, text_len=506
+[2026-03-06 23:52:44] Editing Telegram message (msg_id=285, status=User answered via local dialog)
+[2026-03-06 23:52:45] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-06 23:52:45] edit_message returned: True
+[2026-03-06 23:52:45] Final result: OK
+[2026-03-07 00:05:43] Cleanup reached. tg_bridge=True, tg_msg_id=286
+[2026-03-07 00:05:43] source=tkinter, text_len=1076
+[2026-03-07 00:05:43] Editing Telegram message (msg_id=286, status=User answered via local dialog)
+[2026-03-07 00:05:44] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 00:05:44] edit_message returned: True
+[2026-03-07 00:05:44] Final result: OK
+[2026-03-07 00:11:59] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-07 00:11:59] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-07 00:25:33] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-07 00:25:33] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-07 00:33:44] Cleanup reached. tg_bridge=True, tg_msg_id=287
+[2026-03-07 00:33:44] source=tkinter, text_len=380
+[2026-03-07 00:33:44] Editing Telegram message (msg_id=287, status=User answered via local dialog)
+[2026-03-07 00:33:45] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 00:33:45] edit_message returned: True
+[2026-03-07 00:33:45] Final result: OK
+[2026-03-07 00:52:14] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-07 00:52:14] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-07 01:08:51] Cleanup reached. tg_bridge=True, tg_msg_id=288
+[2026-03-07 01:08:51] source=tkinter, text_len=657
+[2026-03-07 01:08:51] Editing Telegram message (msg_id=288, status=User answered via local dialog)
+[2026-03-07 01:08:52] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 01:08:52] edit_message returned: True
+[2026-03-07 01:08:52] Final result: OK
+[2026-03-07 01:12:14] Cleanup reached. tg_bridge=True, tg_msg_id=289
+[2026-03-07 01:12:14] source=tkinter, text_len=254
+[2026-03-07 01:12:14] Editing Telegram message (msg_id=289, status=User answered via local dialog)
+[2026-03-07 01:12:16] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 01:12:16] edit_message returned: True
+[2026-03-07 01:12:16] Final result: OK
+[2026-03-07 01:30:14] Cleanup reached. tg_bridge=True, tg_msg_id=291
+[2026-03-07 01:30:14] source=tkinter, text_len=0
+[2026-03-07 01:30:14] Editing Telegram message (msg_id=291, status=Cancelled locally)
+[2026-03-07 01:30:16] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 01:30:16] edit_message returned: True
+[2026-03-07 01:30:16] Final result: OK
+[2026-03-07 01:35:05] Cleanup reached. tg_bridge=True, tg_msg_id=292
+[2026-03-07 01:35:05] source=tkinter, text_len=141
+[2026-03-07 01:35:05] Editing Telegram message (msg_id=292, status=User answered via local dialog)
+[2026-03-07 01:35:07] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 01:35:07] edit_message returned: True
+[2026-03-07 01:35:07] Final result: OK
+[2026-03-07 01:39:48] Cleanup reached. tg_bridge=True, tg_msg_id=290
+[2026-03-07 01:39:48] source=tkinter, text_len=366
+[2026-03-07 01:39:48] Editing Telegram message (msg_id=290, status=User answered via local dialog)
+[2026-03-07 01:39:49] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 01:39:49] edit_message returned: True
+[2026-03-07 01:39:49] Final result: OK
+[2026-03-07 01:52:37] Cleanup reached. tg_bridge=True, tg_msg_id=293
+[2026-03-07 01:52:37] source=tkinter, text_len=1135
+[2026-03-07 01:52:37] Editing Telegram message (msg_id=293, status=User answered via local dialog)
+[2026-03-07 01:52:38] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 01:52:38] edit_message returned: True
+[2026-03-07 01:52:38] Final result: OK
+[2026-03-07 02:13:39] Cleanup reached. tg_bridge=True, tg_msg_id=294
+[2026-03-07 02:13:39] source=telegram, text_len=303
+[2026-03-07 02:13:40] Editing Telegram message (msg_id=294, status=Response via Telegram)
+[2026-03-07 02:13:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 02:13:41] edit_message returned: True
+[2026-03-07 02:13:41] Final result: OK
+[2026-03-07 02:21:31] Cleanup reached. tg_bridge=True, tg_msg_id=296
+[2026-03-07 02:21:31] source=telegram, text_len=360
+[2026-03-07 02:21:31] Editing Telegram message (msg_id=296, status=Response via Telegram)
+[2026-03-07 02:21:33] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 02:21:33] edit_message returned: True
+[2026-03-07 02:21:33] Final result: OK
+[2026-03-07 02:23:26] Cleanup reached. tg_bridge=True, tg_msg_id=297
+[2026-03-07 02:23:26] source=telegram, text_len=141
+[2026-03-07 02:23:26] Editing Telegram message (msg_id=297, status=Response via Telegram)
+[2026-03-07 02:23:27] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 02:23:27] edit_message returned: True
+[2026-03-07 02:23:27] Final result: OK
+[2026-03-07 02:24:50] Cleanup reached. tg_bridge=True, tg_msg_id=298
+[2026-03-07 02:24:50] source=telegram, text_len=56
+[2026-03-07 02:24:50] Editing Telegram message (msg_id=298, status=Response via Telegram)
+[2026-03-07 02:24:51] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 02:24:51] edit_message returned: True
+[2026-03-07 02:24:51] Final result: OK
+[2026-03-07 02:27:57] Cleanup reached. tg_bridge=True, tg_msg_id=299
+[2026-03-07 02:27:57] source=telegram, text_len=55
+[2026-03-07 02:27:57] Editing Telegram message (msg_id=299, status=Response via Telegram)
+[2026-03-07 02:27:59] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 02:27:59] edit_message returned: True
+[2026-03-07 02:27:59] Final result: OK
+[2026-03-07 02:40:51] [react_to_message] Reaction '👍' set on msg 301: SUCCESS
+[2026-03-07 02:40:51] Cleanup reached. tg_bridge=True, tg_msg_id=300
+[2026-03-07 02:40:51] source=telegram, text_len=172
+[2026-03-07 02:40:52] Editing Telegram message (msg_id=300, status=Response via Telegram)
+[2026-03-07 02:40:53] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 02:40:53] edit_message returned: True
+[2026-03-07 02:40:53] Final result: OK
+[2026-03-07 02:49:35] Cleanup reached. tg_bridge=True, tg_msg_id=302
+[2026-03-07 02:49:35] source=telegram, text_len=422
+[2026-03-07 02:49:35] Editing Telegram message (msg_id=302, status=Response via Telegram)
+[2026-03-07 02:49:39] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 02:49:39] edit_message returned: True
+[2026-03-07 02:49:39] Final result: OK
+[2026-03-07 03:14:17] Cleanup reached. tg_bridge=True, tg_msg_id=303
+[2026-03-07 03:14:17] source=telegram, text_len=457
+[2026-03-07 03:14:17] Editing Telegram message (msg_id=303, status=Response via Telegram)
+[2026-03-07 03:14:18] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 03:14:18] edit_message returned: True
+[2026-03-07 03:14:18] Final result: OK
+[2026-03-07 12:49:13] Cleanup reached. tg_bridge=True, tg_msg_id=304
+[2026-03-07 12:49:13] source=telegram, text_len=414
+[2026-03-07 12:49:14] Editing Telegram message (msg_id=304, status=Response via Telegram)
+[2026-03-07 12:49:16] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 12:49:16] edit_message returned: True
+[2026-03-07 12:49:16] Final result: OK
+[2026-03-07 12:53:05] Cleanup reached. tg_bridge=True, tg_msg_id=305
+[2026-03-07 12:53:05] source=telegram, text_len=288
+[2026-03-07 12:53:05] Editing Telegram message (msg_id=305, status=Response via Telegram)
+[2026-03-07 12:53:06] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 12:53:06] edit_message returned: True
+[2026-03-07 12:53:06] Final result: OK
+[2026-03-07 13:03:20] Cleanup reached. tg_bridge=True, tg_msg_id=307
+[2026-03-07 13:03:20] source=telegram, text_len=215
+[2026-03-07 13:03:21] Editing Telegram message (msg_id=307, status=Response via Telegram)
+[2026-03-07 13:03:22] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 13:03:22] edit_message returned: True
+[2026-03-07 13:03:22] Final result: OK
+[2026-03-07 15:47:27] Cleanup reached. tg_bridge=True, tg_msg_id=308
+[2026-03-07 15:47:27] source=telegram, text_len=279
+[2026-03-07 15:47:28] Editing Telegram message (msg_id=308, status=Response via Telegram)
+[2026-03-07 15:47:29] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 15:47:29] edit_message returned: True
+[2026-03-07 15:47:29] Final result: OK
+[2026-03-07 15:49:16] Cleanup reached. tg_bridge=True, tg_msg_id=309
+[2026-03-07 15:49:16] source=telegram, text_len=84
+[2026-03-07 15:49:17] Editing Telegram message (msg_id=309, status=Response via Telegram)
+[2026-03-07 15:49:18] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 15:49:18] edit_message returned: True
+[2026-03-07 15:49:18] Final result: OK
+[2026-03-07 17:21:40] Cleanup reached. tg_bridge=True, tg_msg_id=310
+[2026-03-07 17:21:40] source=telegram, text_len=913
+[2026-03-07 17:21:40] Editing Telegram message (msg_id=310, status=Response via Telegram)
+[2026-03-07 17:21:42] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 17:21:42] edit_message returned: True
+[2026-03-07 17:21:42] Final result: OK
+[2026-03-07 17:55:14] Cleanup reached. tg_bridge=True, tg_msg_id=311
+[2026-03-07 17:55:14] source=telegram, text_len=479
+[2026-03-07 17:55:14] Editing Telegram message (msg_id=311, status=Response via Telegram)
+[2026-03-07 17:55:16] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 17:55:16] edit_message returned: True
+[2026-03-07 17:55:16] Final result: OK
+[2026-03-07 19:11:23] Cleanup reached. tg_bridge=True, tg_msg_id=312
+[2026-03-07 19:11:23] source=tkinter, text_len=123
+[2026-03-07 19:11:23] Editing Telegram message (msg_id=312, status=User answered via local dialog)
+[2026-03-07 19:11:24] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 19:11:24] edit_message returned: True
+[2026-03-07 19:11:24] Final result: OK
+[2026-03-07 19:28:23] Cleanup reached. tg_bridge=True, tg_msg_id=313
+[2026-03-07 19:28:23] source=tkinter, text_len=1762
+[2026-03-07 19:28:23] Editing Telegram message (msg_id=313, status=User answered via local dialog)
+[2026-03-07 19:28:25] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 19:28:25] edit_message returned: True
+[2026-03-07 19:28:25] Final result: OK
+[2026-03-07 19:42:35] Cleanup reached. tg_bridge=True, tg_msg_id=314
+[2026-03-07 19:42:35] source=tkinter, text_len=559
+[2026-03-07 19:42:35] Editing Telegram message (msg_id=314, status=User answered via local dialog)
+[2026-03-07 19:42:37] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 19:42:37] edit_message returned: True
+[2026-03-07 19:42:37] Final result: OK
+[2026-03-07 20:39:49] Cleanup reached. tg_bridge=True, tg_msg_id=315
+[2026-03-07 20:39:49] source=tkinter, text_len=424
+[2026-03-07 20:39:49] Editing Telegram message (msg_id=315, status=User answered via local dialog)
+[2026-03-07 20:39:50] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 20:39:50] edit_message returned: True
+[2026-03-07 20:39:50] Final result: OK
+[2026-03-07 20:46:39] Cleanup reached. tg_bridge=True, tg_msg_id=316
+[2026-03-07 20:46:39] source=telegram, text_len=201
+[2026-03-07 20:46:40] Editing Telegram message (msg_id=316, status=Response via Telegram)
+[2026-03-07 20:46:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 20:46:41] edit_message returned: True
+[2026-03-07 20:46:41] Final result: OK
+[2026-03-07 20:58:22] Cleanup reached. tg_bridge=True, tg_msg_id=317
+[2026-03-07 20:58:22] source=telegram, text_len=116
+[2026-03-07 20:58:22] Editing Telegram message (msg_id=317, status=Response via Telegram)
+[2026-03-07 20:58:24] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 20:58:24] edit_message returned: True
+[2026-03-07 20:58:24] Final result: OK
+[2026-03-07 21:43:48] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-07 21:43:48] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-07 21:57:19] Cleanup reached. tg_bridge=True, tg_msg_id=318
+[2026-03-07 21:57:19] source=telegram, text_len=67
+[2026-03-07 21:57:19] Editing Telegram message (msg_id=318, status=Response via Telegram)
+[2026-03-07 21:57:21] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 21:57:21] edit_message returned: True
+[2026-03-07 21:57:21] Final result: OK
+[2026-03-07 22:52:30] Cleanup reached. tg_bridge=True, tg_msg_id=319
+[2026-03-07 22:52:30] source=telegram, text_len=502
+[2026-03-07 22:52:30] Editing Telegram message (msg_id=319, status=Response via Telegram)
+[2026-03-07 22:52:31] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 22:52:31] edit_message returned: True
+[2026-03-07 22:52:31] Final result: OK
+[2026-03-07 22:55:03] Cleanup reached. tg_bridge=True, tg_msg_id=321
+[2026-03-07 22:55:03] source=telegram, text_len=160
+[2026-03-07 22:55:04] Editing Telegram message (msg_id=321, status=Response via Telegram)
+[2026-03-07 22:55:05] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 22:55:05] edit_message returned: True
+[2026-03-07 22:55:05] Final result: OK
+[2026-03-07 22:57:39] Cleanup reached. tg_bridge=True, tg_msg_id=322
+[2026-03-07 22:57:39] source=telegram, text_len=56
+[2026-03-07 22:57:40] Editing Telegram message (msg_id=322, status=Response via Telegram)
+[2026-03-07 22:57:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 22:57:41] edit_message returned: True
+[2026-03-07 22:57:41] Final result: OK
+[2026-03-07 23:24:21] Cleanup reached. tg_bridge=True, tg_msg_id=323
+[2026-03-07 23:24:21] source=tkinter, text_len=177
+[2026-03-07 23:24:21] Editing Telegram message (msg_id=323, status=User answered via local dialog)
+[2026-03-07 23:24:23] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 23:24:23] edit_message returned: True
+[2026-03-07 23:24:23] Final result: OK
+[2026-03-07 23:29:15] Cleanup reached. tg_bridge=True, tg_msg_id=324
+[2026-03-07 23:29:16] source=tkinter, text_len=151
+[2026-03-07 23:29:16] Editing Telegram message (msg_id=324, status=User answered via local dialog)
+[2026-03-07 23:29:17] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 23:29:17] edit_message returned: True
+[2026-03-07 23:29:17] Final result: OK
+[2026-03-07 23:31:49] Cleanup reached. tg_bridge=True, tg_msg_id=325
+[2026-03-07 23:31:49] source=tkinter, text_len=354
+[2026-03-07 23:31:49] Editing Telegram message (msg_id=325, status=User answered via local dialog)
+[2026-03-07 23:31:51] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 23:31:51] edit_message returned: True
+[2026-03-07 23:31:51] Final result: OK
+[2026-03-07 23:32:32] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-07 23:32:32] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-07 23:40:32] Cleanup reached. tg_bridge=True, tg_msg_id=306
+[2026-03-07 23:40:32] source=tkinter, text_len=1224
+[2026-03-07 23:40:32] Editing Telegram message (msg_id=306, status=User answered via local dialog)
+[2026-03-07 23:40:34] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 23:40:34] edit_message returned: True
+[2026-03-07 23:40:34] Final result: OK
+[2026-03-07 23:44:10] Cleanup reached. tg_bridge=True, tg_msg_id=327
+[2026-03-07 23:44:10] source=tkinter, text_len=254
+[2026-03-07 23:44:10] Editing Telegram message (msg_id=327, status=User answered via local dialog)
+[2026-03-07 23:44:12] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 23:44:12] edit_message returned: True
+[2026-03-07 23:44:12] Final result: OK
+[2026-03-07 23:45:15] Cleanup reached. tg_bridge=True, tg_msg_id=328
+[2026-03-07 23:45:15] source=tkinter, text_len=56
+[2026-03-07 23:45:15] Editing Telegram message (msg_id=328, status=User answered via local dialog)
+[2026-03-07 23:45:16] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-07 23:45:16] edit_message returned: True
+[2026-03-07 23:45:16] Final result: OK
+[2026-03-08 00:06:46] Cleanup reached. tg_bridge=True, tg_msg_id=326
+[2026-03-08 00:06:46] source=tkinter, text_len=205
+[2026-03-08 00:06:46] Editing Telegram message (msg_id=326, status=User answered via local dialog)
+[2026-03-08 00:06:47] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 00:06:47] edit_message returned: True
+[2026-03-08 00:06:47] Final result: OK
+[2026-03-08 00:18:51] Cleanup reached. tg_bridge=True, tg_msg_id=329
+[2026-03-08 00:18:51] source=tkinter, text_len=269
+[2026-03-08 00:18:51] Editing Telegram message (msg_id=329, status=User answered via local dialog)
+[2026-03-08 00:18:52] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 00:18:52] edit_message returned: True
+[2026-03-08 00:18:52] Final result: OK
+[2026-03-08 00:22:55] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-08 00:22:55] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-08 00:25:52] Cleanup reached. tg_bridge=True, tg_msg_id=330
+[2026-03-08 00:25:52] source=tkinter, text_len=120
+[2026-03-08 00:25:52] Editing Telegram message (msg_id=330, status=User answered via local dialog)
+[2026-03-08 00:25:53] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 00:25:53] edit_message returned: True
+[2026-03-08 00:25:53] Final result: OK
+[2026-03-08 00:30:33] Cleanup reached. tg_bridge=True, tg_msg_id=332
+[2026-03-08 00:30:33] source=tkinter, text_len=116
+[2026-03-08 00:30:33] Editing Telegram message (msg_id=332, status=User answered via local dialog)
+[2026-03-08 00:30:35] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 00:30:35] edit_message returned: True
+[2026-03-08 00:30:35] Final result: OK
+[2026-03-08 00:33:38] Cleanup reached. tg_bridge=True, tg_msg_id=333
+[2026-03-08 00:33:38] source=tkinter, text_len=191
+[2026-03-08 00:33:38] Editing Telegram message (msg_id=333, status=User answered via local dialog)
+[2026-03-08 00:33:39] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 00:33:39] edit_message returned: True
+[2026-03-08 00:33:39] Final result: OK
+[2026-03-08 00:44:36] Cleanup reached. tg_bridge=True, tg_msg_id=334
+[2026-03-08 00:44:36] source=tkinter, text_len=129
+[2026-03-08 00:44:36] Editing Telegram message (msg_id=334, status=User answered via local dialog)
+[2026-03-08 00:44:40] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 00:44:40] edit_message returned: True
+[2026-03-08 00:44:40] Final result: OK
+[2026-03-08 00:47:35] Cleanup reached. tg_bridge=True, tg_msg_id=335
+[2026-03-08 00:47:35] source=tkinter, text_len=162
+[2026-03-08 00:47:35] Editing Telegram message (msg_id=335, status=User answered via local dialog)
+[2026-03-08 00:47:36] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 00:47:36] edit_message returned: True
+[2026-03-08 00:47:36] Final result: OK
+[2026-03-08 01:04:50] Cleanup reached. tg_bridge=True, tg_msg_id=336
+[2026-03-08 01:04:50] source=telegram, text_len=187
+[2026-03-08 01:04:51] Editing Telegram message (msg_id=336, status=Response via Telegram)
+[2026-03-08 01:04:53] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 01:04:53] edit_message returned: True
+[2026-03-08 01:04:53] Final result: OK
+[2026-03-08 01:15:48] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-08 01:15:48] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-08 01:18:36] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-08 01:18:36] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-08 01:19:33] Cleanup reached. tg_bridge=True, tg_msg_id=331
+[2026-03-08 01:19:33] source=tkinter, text_len=167
+[2026-03-08 01:19:33] Editing Telegram message (msg_id=331, status=User answered via local dialog)
+[2026-03-08 01:19:35] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 01:19:35] edit_message returned: True
+[2026-03-08 01:19:35] Final result: OK
+[2026-03-08 01:29:25] Cleanup reached. tg_bridge=True, tg_msg_id=337
+[2026-03-08 01:29:25] source=tkinter, text_len=123
+[2026-03-08 01:29:25] Editing Telegram message (msg_id=337, status=User answered via local dialog)
+[2026-03-08 01:29:26] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 01:29:26] edit_message returned: True
+[2026-03-08 01:29:26] Final result: OK
+[2026-03-08 01:49:26] Cleanup reached. tg_bridge=True, tg_msg_id=339
+[2026-03-08 01:49:26] source=tkinter, text_len=618
+[2026-03-08 01:49:26] Editing Telegram message (msg_id=339, status=User answered via local dialog)
+[2026-03-08 01:49:28] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 01:49:28] edit_message returned: True
+[2026-03-08 01:49:28] Final result: OK
+[2026-03-08 01:51:59] Cleanup reached. tg_bridge=True, tg_msg_id=338
+[2026-03-08 01:51:59] source=tkinter, text_len=323
+[2026-03-08 01:51:59] Editing Telegram message (msg_id=338, status=User answered via local dialog)
+[2026-03-08 01:52:01] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 01:52:01] edit_message returned: True
+[2026-03-08 01:52:01] Final result: OK
+[2026-03-08 02:10:26] Cleanup reached. tg_bridge=True, tg_msg_id=342
+[2026-03-08 02:10:26] source=tkinter, text_len=4
+[2026-03-08 02:10:26] Editing Telegram message (msg_id=342, status=User answered via local dialog)
+[2026-03-08 02:10:28] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:10:28] edit_message returned: True
+[2026-03-08 02:10:28] Final result: OK
+[2026-03-08 02:18:53] Cleanup reached. tg_bridge=True, tg_msg_id=340
+[2026-03-08 02:18:53] source=tkinter, text_len=188
+[2026-03-08 02:18:53] Editing Telegram message (msg_id=340, status=User answered via local dialog)
+[2026-03-08 02:18:55] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:18:55] edit_message returned: True
+[2026-03-08 02:18:55] Final result: OK
+[2026-03-08 02:22:42] Cleanup reached. tg_bridge=True, tg_msg_id=344
+[2026-03-08 02:22:42] source=tkinter, text_len=78
+[2026-03-08 02:22:42] Editing Telegram message (msg_id=344, status=User answered via local dialog)
+[2026-03-08 02:22:43] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:22:43] edit_message returned: True
+[2026-03-08 02:22:43] Final result: OK
+[2026-03-08 02:26:02] Cleanup reached. tg_bridge=True, tg_msg_id=341
+[2026-03-08 02:26:02] source=tkinter, text_len=450
+[2026-03-08 02:26:02] Editing Telegram message (msg_id=341, status=User answered via local dialog)
+[2026-03-08 02:26:04] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:26:04] edit_message returned: True
+[2026-03-08 02:26:04] Final result: OK
+[2026-03-08 02:38:02] Cleanup reached. tg_bridge=True, tg_msg_id=345
+[2026-03-08 02:38:02] source=tkinter, text_len=241
+[2026-03-08 02:38:02] Editing Telegram message (msg_id=345, status=User answered via local dialog)
+[2026-03-08 02:38:04] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:38:04] edit_message returned: True
+[2026-03-08 02:38:04] Final result: OK
+[2026-03-08 02:42:45] Cleanup reached. tg_bridge=True, tg_msg_id=343
+[2026-03-08 02:42:45] source=tkinter, text_len=480
+[2026-03-08 02:42:45] Editing Telegram message (msg_id=343, status=User answered via local dialog)
+[2026-03-08 02:42:47] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:42:47] edit_message returned: True
+[2026-03-08 02:42:47] Final result: OK
+[2026-03-08 02:44:57] Cleanup reached. tg_bridge=True, tg_msg_id=346
+[2026-03-08 02:44:57] source=tkinter, text_len=77
+[2026-03-08 02:44:57] Editing Telegram message (msg_id=346, status=User answered via local dialog)
+[2026-03-08 02:44:58] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:44:58] edit_message returned: True
+[2026-03-08 02:44:58] Final result: OK
+[2026-03-08 02:47:08] Cleanup reached. tg_bridge=True, tg_msg_id=348
+[2026-03-08 02:47:08] source=tkinter, text_len=140
+[2026-03-08 02:47:08] Editing Telegram message (msg_id=348, status=User answered via local dialog)
+[2026-03-08 02:47:10] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:47:10] edit_message returned: True
+[2026-03-08 02:47:10] Final result: OK
+[2026-03-08 02:49:40] Cleanup reached. tg_bridge=True, tg_msg_id=347
+[2026-03-08 02:49:40] source=tkinter, text_len=300
+[2026-03-08 02:49:40] Editing Telegram message (msg_id=347, status=User answered via local dialog)
+[2026-03-08 02:49:42] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:49:42] edit_message returned: True
+[2026-03-08 02:49:42] Final result: OK
+[2026-03-08 02:53:52] Cleanup reached. tg_bridge=True, tg_msg_id=349
+[2026-03-08 02:53:52] source=tkinter, text_len=149
+[2026-03-08 02:53:52] Editing Telegram message (msg_id=349, status=User answered via local dialog)
+[2026-03-08 02:53:54] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:53:54] edit_message returned: True
+[2026-03-08 02:53:54] Final result: OK
+[2026-03-08 02:59:28] Cleanup reached. tg_bridge=True, tg_msg_id=352
+[2026-03-08 02:59:28] source=tkinter, text_len=271
+[2026-03-08 02:59:28] Editing Telegram message (msg_id=352, status=User answered via local dialog)
+[2026-03-08 02:59:29] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 02:59:29] edit_message returned: True
+[2026-03-08 02:59:29] Final result: OK
+[2026-03-08 03:12:33] Cleanup reached. tg_bridge=True, tg_msg_id=353
+[2026-03-08 03:12:33] source=tkinter, text_len=0
+[2026-03-08 03:12:33] Editing Telegram message (msg_id=353, status=Cancelled locally)
+[2026-03-08 03:12:35] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 03:12:35] edit_message returned: True
+[2026-03-08 03:12:35] Final result: OK
+[2026-03-08 03:22:10] Cleanup reached. tg_bridge=True, tg_msg_id=355
+[2026-03-08 03:22:10] source=tkinter, text_len=331
+[2026-03-08 03:22:10] Editing Telegram message (msg_id=355, status=User answered via local dialog)
+[2026-03-08 03:22:11] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 03:22:11] edit_message returned: True
+[2026-03-08 03:22:11] Final result: OK
+[2026-03-08 03:22:35] Cleanup reached. tg_bridge=True, tg_msg_id=354
+[2026-03-08 03:22:35] source=tkinter, text_len=0
+[2026-03-08 03:22:35] Editing Telegram message (msg_id=354, status=Cancelled locally)
+[2026-03-08 03:22:36] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 03:22:36] edit_message returned: True
+[2026-03-08 03:22:36] Final result: OK
+[2026-03-08 03:35:59] Cleanup reached. tg_bridge=True, tg_msg_id=356
+[2026-03-08 03:35:59] source=telegram, text_len=79
+[2026-03-08 03:36:00] Editing Telegram message (msg_id=356, status=Response via Telegram)
+[2026-03-08 03:36:01] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 03:36:01] edit_message returned: True
+[2026-03-08 03:36:01] Final result: OK
+[2026-03-08 11:38:11] Cleanup reached. tg_bridge=True, tg_msg_id=350
+[2026-03-08 11:38:11] source=telegram, text_len=340
+[2026-03-08 11:38:12] Editing Telegram message (msg_id=350, status=Response via Telegram)
+[2026-03-08 11:38:13] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 11:38:13] edit_message returned: True
+[2026-03-08 11:38:13] Final result: OK
+[2026-03-08 11:40:33] Cleanup reached. tg_bridge=True, tg_msg_id=357
+[2026-03-08 11:40:33] source=telegram, text_len=183
+[2026-03-08 11:40:34] Editing Telegram message (msg_id=357, status=Response via Telegram)
+[2026-03-08 11:40:36] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 11:40:36] edit_message returned: True
+[2026-03-08 11:40:36] Final result: OK
+[2026-03-08 11:44:38] Cleanup reached. tg_bridge=True, tg_msg_id=359
+[2026-03-08 11:44:38] source=telegram, text_len=249
+[2026-03-08 11:44:39] Editing Telegram message (msg_id=359, status=Response via Telegram)
+[2026-03-08 11:44:40] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 11:44:40] edit_message returned: True
+[2026-03-08 11:44:40] Final result: OK
+[2026-03-08 11:47:54] Cleanup reached. tg_bridge=True, tg_msg_id=361
+[2026-03-08 11:47:54] source=telegram, text_len=217
+[2026-03-08 11:47:55] Editing Telegram message (msg_id=361, status=Response via Telegram)
+[2026-03-08 11:47:56] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 11:47:56] edit_message returned: True
+[2026-03-08 11:47:56] Final result: OK
+[2026-03-08 11:49:12] Cleanup reached. tg_bridge=True, tg_msg_id=360
+[2026-03-08 11:49:12] source=telegram, text_len=129
+[2026-03-08 11:49:13] Editing Telegram message (msg_id=360, status=Response via Telegram)
+[2026-03-08 11:49:14] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 11:49:14] edit_message returned: True
+[2026-03-08 11:49:14] Final result: OK
+[2026-03-08 11:58:22] Cleanup reached. tg_bridge=True, tg_msg_id=362
+[2026-03-08 11:58:22] source=telegram, text_len=138
+[2026-03-08 11:58:22] Editing Telegram message (msg_id=362, status=Response via Telegram)
+[2026-03-08 11:58:24] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 11:58:24] edit_message returned: True
+[2026-03-08 11:58:24] Final result: OK
+[2026-03-08 12:03:21] Cleanup reached. tg_bridge=True, tg_msg_id=364
+[2026-03-08 12:03:21] source=telegram, text_len=198
+[2026-03-08 12:03:22] Editing Telegram message (msg_id=364, status=Response via Telegram)
+[2026-03-08 12:03:23] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 12:03:23] edit_message returned: True
+[2026-03-08 12:03:23] Final result: OK
+[2026-03-08 12:19:41] Cleanup reached. tg_bridge=True, tg_msg_id=365
+[2026-03-08 12:19:41] source=tkinter, text_len=163
+[2026-03-08 12:19:41] Editing Telegram message (msg_id=365, status=User answered via local dialog)
+[2026-03-08 12:19:43] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 12:19:43] edit_message returned: True
+[2026-03-08 12:19:43] Final result: OK
+[2026-03-08 12:23:43] Cleanup reached. tg_bridge=True, tg_msg_id=358
+[2026-03-08 12:23:43] source=tkinter, text_len=387
+[2026-03-08 12:23:43] Editing Telegram message (msg_id=358, status=User answered via local dialog)
+[2026-03-08 12:23:46] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 12:23:46] edit_message returned: True
+[2026-03-08 12:23:46] Final result: OK
+[2026-03-08 12:26:50] Cleanup reached. tg_bridge=True, tg_msg_id=363
+[2026-03-08 12:26:50] source=tkinter, text_len=140
+[2026-03-08 12:26:50] Editing Telegram message (msg_id=363, status=User answered via local dialog)
+[2026-03-08 12:27:01] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 12:27:01] edit_message returned: True
+[2026-03-08 12:27:01] Final result: OK
+[2026-03-08 12:32:58] Cleanup reached. tg_bridge=True, tg_msg_id=366
+[2026-03-08 12:32:58] source=tkinter, text_len=0
+[2026-03-08 12:32:58] Editing Telegram message (msg_id=366, status=Cancelled locally)
+[2026-03-08 12:32:59] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 12:32:59] edit_message returned: True
+[2026-03-08 12:32:59] Final result: OK
+[2026-03-08 12:40:31] Cleanup reached. tg_bridge=True, tg_msg_id=367
+[2026-03-08 12:40:31] source=telegram, text_len=6
+[2026-03-08 12:40:31] Editing Telegram message (msg_id=367, status=Response via Telegram)
+[2026-03-08 12:40:33] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 12:40:33] edit_message returned: True
+[2026-03-08 12:40:33] Final result: OK
+[2026-03-08 12:40:37] Cleanup reached. tg_bridge=True, tg_msg_id=368
+[2026-03-08 12:40:37] source=telegram, text_len=7
+[2026-03-08 12:40:38] Editing Telegram message (msg_id=368, status=Response via Telegram)
+[2026-03-08 12:40:39] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 12:40:39] edit_message returned: True
+[2026-03-08 12:40:39] Final result: OK
+[2026-03-08 12:41:31] Cleanup reached. tg_bridge=True, tg_msg_id=371
+[2026-03-08 12:41:31] source=telegram, text_len=4
+[2026-03-08 12:41:31] Editing Telegram message (msg_id=371, status=Response via Telegram)
+[2026-03-08 12:41:34] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 12:41:34] edit_message returned: True
+[2026-03-08 12:41:34] Final result: OK
+[2026-03-08 13:13:47] Cleanup reached. tg_bridge=True, tg_msg_id=375
+[2026-03-08 13:13:47] source=telegram, text_len=151
+[2026-03-08 13:13:48] Editing Telegram message (msg_id=375, status=Response via Telegram)
+[2026-03-08 13:13:59] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 13:13:59] edit_message returned: True
+[2026-03-08 13:13:59] Final result: OK
+[2026-03-08 13:19:17] Cleanup reached. tg_bridge=True, tg_msg_id=377
+[2026-03-08 13:19:17] source=telegram, text_len=334
+[2026-03-08 13:19:17] Editing Telegram message (msg_id=377, status=Response via Telegram)
+[2026-03-08 13:19:19] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 13:19:19] edit_message returned: True
+[2026-03-08 13:19:19] Final result: OK
+[2026-03-08 14:03:16] Cleanup reached. tg_bridge=True, tg_msg_id=379
+[2026-03-08 14:03:16] source=tkinter, text_len=145
+[2026-03-08 14:03:16] Editing Telegram message (msg_id=379, status=User answered via local dialog)
+[2026-03-08 14:03:18] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:03:18] edit_message returned: True
+[2026-03-08 14:03:18] Final result: OK
+[2026-03-08 14:05:32] Cleanup reached. tg_bridge=True, tg_msg_id=373
+[2026-03-08 14:05:32] source=tkinter, text_len=118
+[2026-03-08 14:05:32] Editing Telegram message (msg_id=373, status=User answered via local dialog)
+[2026-03-08 14:05:34] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:05:34] edit_message returned: True
+[2026-03-08 14:05:34] Final result: OK
+[2026-03-08 14:09:07] Cleanup reached. tg_bridge=True, tg_msg_id=374
+[2026-03-08 14:09:07] source=tkinter, text_len=390
+[2026-03-08 14:09:07] Editing Telegram message (msg_id=374, status=User answered via local dialog)
+[2026-03-08 14:09:09] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:09:09] edit_message returned: True
+[2026-03-08 14:09:09] Final result: OK
+[2026-03-08 14:16:37] Cleanup reached. tg_bridge=True, tg_msg_id=380
+[2026-03-08 14:16:37] source=telegram_miniapp, text_len=53
+[2026-03-08 14:16:38] Editing Telegram message (msg_id=380, status=Response via Telegram Mini App)
+[2026-03-08 14:16:39] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:16:39] edit_message returned: True
+[2026-03-08 14:16:39] Final result: OK
+[2026-03-08 14:18:52] Cleanup reached. tg_bridge=True, tg_msg_id=381
+[2026-03-08 14:18:52] source=telegram_miniapp, text_len=115
+[2026-03-08 14:18:52] Editing Telegram message (msg_id=381, status=Response via Telegram Mini App)
+[2026-03-08 14:18:54] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:18:54] edit_message returned: True
+[2026-03-08 14:18:54] Final result: OK
+[2026-03-08 14:22:45] Cleanup reached. tg_bridge=True, tg_msg_id=384
+[2026-03-08 14:22:45] source=tkinter, text_len=922
+[2026-03-08 14:22:45] Editing Telegram message (msg_id=384, status=User answered via local dialog)
+[2026-03-08 14:22:46] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:22:46] edit_message returned: True
+[2026-03-08 14:22:46] Final result: OK
+[2026-03-08 14:26:53] Cleanup reached. tg_bridge=True, tg_msg_id=385
+[2026-03-08 14:26:53] source=telegram_miniapp, text_len=258
+[2026-03-08 14:26:54] Editing Telegram message (msg_id=385, status=Response via Telegram Mini App)
+[2026-03-08 14:26:55] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:26:55] edit_message returned: True
+[2026-03-08 14:26:55] Final result: OK
+[2026-03-08 14:28:48] Cleanup reached. tg_bridge=True, tg_msg_id=383
+[2026-03-08 14:28:48] source=telegram_miniapp, text_len=181
+[2026-03-08 14:28:48] Editing Telegram message (msg_id=383, status=Response via Telegram Mini App)
+[2026-03-08 14:28:50] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:28:50] edit_message returned: True
+[2026-03-08 14:28:50] Final result: OK
+[2026-03-08 14:32:21] Cleanup reached. tg_bridge=True, tg_msg_id=382
+[2026-03-08 14:32:21] source=telegram_miniapp, text_len=319
+[2026-03-08 14:32:22] Editing Telegram message (msg_id=382, status=Response via Telegram Mini App)
+[2026-03-08 14:32:33] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 14:32:33] edit_message returned: True
+[2026-03-08 14:32:33] Final result: OK
+[2026-03-08 15:15:00] Cleanup reached. tg_bridge=True, tg_msg_id=387
+[2026-03-08 15:15:00] source=telegram_miniapp, text_len=262
+[2026-03-08 15:15:01] Editing Telegram message (msg_id=387, status=Response via Telegram Mini App)
+[2026-03-08 15:15:12] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 15:15:12] edit_message returned: True
+[2026-03-08 15:15:12] Final result: OK
+[2026-03-08 15:17:55] Cleanup reached. tg_bridge=True, tg_msg_id=386
+[2026-03-08 15:17:55] source=telegram_miniapp, text_len=229
+[2026-03-08 15:17:56] Editing Telegram message (msg_id=386, status=Response via Telegram Mini App)
+[2026-03-08 15:17:58] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 15:17:58] edit_message returned: True
+[2026-03-08 15:17:58] Final result: OK
+[2026-03-08 15:24:13] Cleanup reached. tg_bridge=True, tg_msg_id=388
+[2026-03-08 15:24:13] source=telegram_miniapp, text_len=88
+[2026-03-08 15:24:13] Editing Telegram message (msg_id=388, status=Response via Telegram Mini App)
+[2026-03-08 15:24:14] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 15:24:14] edit_message returned: True
+[2026-03-08 15:24:14] Final result: OK
+[2026-03-08 15:29:46] Cleanup reached. tg_bridge=True, tg_msg_id=389
+[2026-03-08 15:29:46] source=telegram_miniapp, text_len=340
+[2026-03-08 15:29:47] Editing Telegram message (msg_id=389, status=Response via Telegram Mini App)
+[2026-03-08 15:29:48] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 15:29:48] edit_message returned: True
+[2026-03-08 15:29:48] Final result: OK
+[2026-03-08 15:33:48] Cleanup reached. tg_bridge=True, tg_msg_id=391
+[2026-03-08 15:33:48] source=telegram_miniapp, text_len=73
+[2026-03-08 15:33:49] Editing Telegram message (msg_id=391, status=Response via Telegram Mini App)
+[2026-03-08 15:33:50] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 15:33:50] edit_message returned: True
+[2026-03-08 15:33:50] Final result: OK
+[2026-03-08 15:39:53] Cleanup reached. tg_bridge=True, tg_msg_id=390
+[2026-03-08 15:39:53] source=telegram_miniapp, text_len=431
+[2026-03-08 15:39:54] Editing Telegram message (msg_id=390, status=Response via Telegram Mini App)
+[2026-03-08 15:40:05] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 15:40:05] edit_message returned: True
+[2026-03-08 15:40:05] Final result: OK
+[2026-03-08 16:00:16] Cleanup reached. tg_bridge=True, tg_msg_id=392
+[2026-03-08 16:00:16] source=telegram_miniapp, text_len=431
+[2026-03-08 16:00:17] Editing Telegram message (msg_id=392, status=Response via Telegram Mini App)
+[2026-03-08 16:00:18] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 16:00:18] edit_message returned: True
+[2026-03-08 16:00:18] Final result: OK
+[2026-03-08 16:08:48] Cleanup reached. tg_bridge=True, tg_msg_id=393
+[2026-03-08 16:08:48] source=telegram_miniapp, text_len=297
+[2026-03-08 16:08:48] Editing Telegram message (msg_id=393, status=Response via Telegram Mini App)
+[2026-03-08 16:09:00] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 16:09:00] edit_message returned: True
+[2026-03-08 16:09:00] Final result: OK
+[2026-03-08 16:23:29] Cleanup reached. tg_bridge=True, tg_msg_id=395
+[2026-03-08 16:23:29] source=telegram_reply, text_len=73
+[2026-03-08 16:23:29] Editing Telegram message (msg_id=395, status=Response via Telegram reply)
+[2026-03-08 16:23:31] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 16:23:31] edit_message returned: True
+[2026-03-08 16:23:31] Final result: OK
+[2026-03-08 16:32:55] Cleanup reached. tg_bridge=True, tg_msg_id=397
+[2026-03-08 16:32:55] source=telegram_miniapp, text_len=161
+[2026-03-08 16:32:55] Editing Telegram message (msg_id=397, status=Response via Telegram Mini App)
+[2026-03-08 16:32:56] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 16:32:56] edit_message returned: True
+[2026-03-08 16:32:56] Final result: OK
+[2026-03-08 16:38:23] Cleanup reached. tg_bridge=True, tg_msg_id=394
+[2026-03-08 16:38:23] source=telegram_miniapp, text_len=291
+[2026-03-08 16:38:23] Editing Telegram message (msg_id=394, status=Response via Telegram Mini App)
+[2026-03-08 16:38:24] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 16:38:24] edit_message returned: True
+[2026-03-08 16:38:24] Final result: OK
+[2026-03-08 17:12:17] Cleanup reached. tg_bridge=True, tg_msg_id=400
+[2026-03-08 17:12:17] source=telegram_miniapp, text_len=133
+[2026-03-08 17:12:18] Editing Telegram message (msg_id=400, status=Response via Telegram Mini App)
+[2026-03-08 17:12:19] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 17:12:19] edit_message returned: True
+[2026-03-08 17:12:19] Final result: OK
+[2026-03-08 17:14:37] Cleanup reached. tg_bridge=True, tg_msg_id=398
+[2026-03-08 17:14:37] source=telegram_miniapp, text_len=167
+[2026-03-08 17:14:37] Editing Telegram message (msg_id=398, status=Response via Telegram Mini App)
+[2026-03-08 17:14:49] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 17:14:49] edit_message returned: True
+[2026-03-08 17:14:49] Final result: OK
+[2026-03-08 17:19:31] Cleanup reached. tg_bridge=True, tg_msg_id=399
+[2026-03-08 17:19:31] source=telegram_miniapp, text_len=375
+[2026-03-08 17:19:32] Editing Telegram message (msg_id=399, status=Response via Telegram Mini App)
+[2026-03-08 17:19:33] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 17:19:33] edit_message returned: True
+[2026-03-08 17:19:33] Final result: OK
+[2026-03-08 17:22:05] Cleanup reached. tg_bridge=True, tg_msg_id=402
+[2026-03-08 17:22:05] source=telegram_miniapp, text_len=114
+[2026-03-08 17:22:05] Editing Telegram message (msg_id=402, status=Response via Telegram Mini App)
+[2026-03-08 17:22:17] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 17:22:17] edit_message returned: True
+[2026-03-08 17:22:17] Final result: OK
+[2026-03-08 18:33:26] Cleanup reached. tg_bridge=True, tg_msg_id=401
+[2026-03-08 18:33:26] source=telegram_miniapp, text_len=284
+[2026-03-08 18:33:27] Editing Telegram message (msg_id=401, status=Response via Telegram Mini App)
+[2026-03-08 18:33:28] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 18:33:28] edit_message returned: True
+[2026-03-08 18:33:28] Final result: OK
+[2026-03-08 18:34:59] Cleanup reached. tg_bridge=True, tg_msg_id=403
+[2026-03-08 18:34:59] source=telegram_miniapp, text_len=75
+[2026-03-08 18:34:59] Editing Telegram message (msg_id=403, status=Response via Telegram Mini App)
+[2026-03-08 18:35:12] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 18:35:12] edit_message returned: True
+[2026-03-08 18:35:12] Final result: OK
+[2026-03-08 18:49:51] Cleanup reached. tg_bridge=True, tg_msg_id=404
+[2026-03-08 18:49:51] source=telegram_miniapp, text_len=581
+[2026-03-08 18:49:52] Editing Telegram message (msg_id=404, status=Response via Telegram Mini App)
+[2026-03-08 18:49:54] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 18:49:54] edit_message returned: True
+[2026-03-08 18:49:54] Final result: OK
+[2026-03-08 19:05:00] Cleanup reached. tg_bridge=True, tg_msg_id=405
+[2026-03-08 19:05:00] source=telegram_miniapp, text_len=70
+[2026-03-08 19:05:00] Editing Telegram message (msg_id=405, status=Response via Telegram Mini App)
+[2026-03-08 19:05:02] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 19:05:02] edit_message returned: True
+[2026-03-08 19:05:02] Final result: OK
+[2026-03-08 19:08:11] Cleanup reached. tg_bridge=True, tg_msg_id=406
+[2026-03-08 19:08:11] source=telegram_miniapp, text_len=603
+[2026-03-08 19:08:12] Editing Telegram message (msg_id=406, status=Response via Telegram Mini App)
+[2026-03-08 19:08:13] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 19:08:13] edit_message returned: True
+[2026-03-08 19:08:13] Final result: OK
+[2026-03-08 19:15:19] Cleanup reached. tg_bridge=True, tg_msg_id=407
+[2026-03-08 19:15:19] source=telegram_miniapp, text_len=226
+[2026-03-08 19:15:20] Editing Telegram message (msg_id=407, status=Response via Telegram Mini App)
+[2026-03-08 19:15:34] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 19:15:34] edit_message returned: True
+[2026-03-08 19:15:34] Final result: OK
+[2026-03-08 19:32:19] Cleanup reached. tg_bridge=True, tg_msg_id=408
+[2026-03-08 19:32:19] source=telegram_miniapp, text_len=835
+[2026-03-08 19:32:20] Editing Telegram message (msg_id=408, status=Response via Telegram Mini App)
+[2026-03-08 19:32:21] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 19:32:21] edit_message returned: True
+[2026-03-08 19:32:21] Final result: OK
+[2026-03-08 19:37:19] Cleanup reached. tg_bridge=True, tg_msg_id=409
+[2026-03-08 19:37:19] source=telegram_miniapp, text_len=213
+[2026-03-08 19:37:20] Editing Telegram message (msg_id=409, status=Response via Telegram Mini App)
+[2026-03-08 19:37:33] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 19:37:33] edit_message returned: True
+[2026-03-08 19:37:33] Final result: OK
+[2026-03-08 20:08:58] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-08 20:08:58] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-08 21:28:36] Cleanup reached. tg_bridge=True, tg_msg_id=412
+[2026-03-08 21:28:36] source=telegram_miniapp, text_len=73
+[2026-03-08 21:28:36] Editing Telegram message (msg_id=412, status=Response via Telegram Mini App)
+[2026-03-08 21:28:39] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 21:28:39] edit_message returned: True
+[2026-03-08 21:28:39] Final result: OK
+[2026-03-08 22:40:02] Cleanup reached. tg_bridge=True, tg_msg_id=413
+[2026-03-08 22:40:02] source=tkinter, text_len=860
+[2026-03-08 22:40:02] Editing Telegram message (msg_id=413, status=User answered via local dialog)
+[2026-03-08 22:40:07] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 22:40:07] edit_message returned: True
+[2026-03-08 22:40:07] Final result: OK
+[2026-03-08 23:03:34] Cleanup reached. tg_bridge=True, tg_msg_id=414
+[2026-03-08 23:03:34] source=telegram_miniapp, text_len=781
+[2026-03-08 23:03:34] Editing Telegram message (msg_id=414, status=Response via Telegram Mini App)
+[2026-03-08 23:03:36] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 23:03:36] edit_message returned: True
+[2026-03-08 23:03:36] Final result: OK
+[2026-03-08 23:07:26] Cleanup reached. tg_bridge=True, tg_msg_id=410
+[2026-03-08 23:07:26] source=telegram_miniapp, text_len=110
+[2026-03-08 23:07:27] Editing Telegram message (msg_id=410, status=Response via Telegram Mini App)
+[2026-03-08 23:07:38] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 23:07:38] edit_message returned: True
+[2026-03-08 23:07:38] Final result: OK
+[2026-03-08 23:24:31] [pin_message] msg_id=415: SUCCESS
+[2026-03-08 23:26:47] Cleanup reached. tg_bridge=True, tg_msg_id=415
+[2026-03-08 23:26:47] source=tkinter, text_len=0
+[2026-03-08 23:26:47] Editing Telegram message (msg_id=415, status=Cancelled locally)
+[2026-03-08 23:26:48] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 23:26:48] edit_message returned: True
+[2026-03-08 23:26:50] [unpin_message] msg_id=415: SUCCESS
+[2026-03-08 23:26:50] unpin_message returned: True
+[2026-03-08 23:26:50] Final result: OK
+[2026-03-08 23:27:32] [pin_message] msg_id=417: SUCCESS
+[2026-03-08 23:27:51] Cleanup reached. tg_bridge=True, tg_msg_id=417
+[2026-03-08 23:27:51] source=telegram_reply, text_len=9
+[2026-03-08 23:27:51] Editing Telegram message (msg_id=417, status=Response via Telegram reply)
+[2026-03-08 23:27:53] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 23:27:53] edit_message returned: True
+[2026-03-08 23:28:04] [unpin_message] msg_id=417: SUCCESS
+[2026-03-08 23:28:04] unpin_message returned: True
+[2026-03-08 23:28:04] Final result: OK
+[2026-03-08 23:28:37] [pin_message] msg_id=420: SUCCESS
+[2026-03-08 23:28:51] Cleanup reached. tg_bridge=True, tg_msg_id=420
+[2026-03-08 23:28:51] source=telegram_miniapp, text_len=4
+[2026-03-08 23:28:52] Editing Telegram message (msg_id=420, status=Response via Telegram Mini App)
+[2026-03-08 23:28:53] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 23:28:53] edit_message returned: True
+[2026-03-08 23:28:54] [unpin_message] msg_id=420: SUCCESS
+[2026-03-08 23:28:54] unpin_message returned: True
+[2026-03-08 23:28:54] Final result: OK
+[2026-03-08 23:44:03] [pin_message] msg_id=422: SUCCESS
+[2026-03-08 23:44:59] Cleanup reached. tg_bridge=True, tg_msg_id=422
+[2026-03-08 23:44:59] source=telegram_miniapp, text_len=99
+[2026-03-08 23:44:59] Editing Telegram message (msg_id=422, status=Response via Telegram Mini App)
+[2026-03-08 23:45:01] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-08 23:45:01] edit_message returned: True
+[2026-03-08 23:45:02] [unpin_message] msg_id=422: SUCCESS
+[2026-03-08 23:45:02] unpin_message returned: True
+[2026-03-08 23:45:02] Final result: OK
+[2026-03-08 23:52:33] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-08 23:52:33] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-08 23:54:44] [pin_message] msg_id=424: SUCCESS
+[2026-03-09 00:01:58] Cleanup reached. tg_bridge=True, tg_msg_id=424
+[2026-03-09 00:01:58] source=tkinter, text_len=1639
+[2026-03-09 00:01:58] Editing Telegram message (msg_id=424, status=User answered via local dialog)
+[2026-03-09 00:02:00] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 00:02:00] edit_message returned: True
+[2026-03-09 00:02:03] [unpin_message] msg_id=424: SUCCESS
+[2026-03-09 00:02:03] unpin_message returned: True
+[2026-03-09 00:02:03] Final result: OK
+[2026-03-09 00:10:35] [pin_message] msg_id=426: SUCCESS
+[2026-03-09 00:22:55] Cleanup reached. tg_bridge=True, tg_msg_id=426
+[2026-03-09 00:22:55] source=telegram_miniapp, text_len=347
+[2026-03-09 00:22:55] Editing Telegram message (msg_id=426, status=Response via Telegram Mini App)
+[2026-03-09 00:22:57] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 00:22:57] edit_message returned: True
+[2026-03-09 00:23:08] [unpin_message] msg_id=426: SUCCESS
+[2026-03-09 00:23:08] unpin_message returned: True
+[2026-03-09 00:23:08] Final result: OK
+[2026-03-09 00:24:57] [pin_message] msg_id=430: SUCCESS
+[2026-03-09 00:27:26] Cleanup reached. tg_bridge=True, tg_msg_id=430
+[2026-03-09 00:27:26] source=telegram_reply, text_len=239
+[2026-03-09 00:27:27] Editing Telegram message (msg_id=430, status=Response via Telegram reply)
+[2026-03-09 00:27:38] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 00:27:38] edit_message returned: True
+[2026-03-09 00:27:39] [unpin_message] msg_id=430: SUCCESS
+[2026-03-09 00:27:39] unpin_message returned: True
+[2026-03-09 00:27:39] Final result: OK
+[2026-03-09 00:49:49] [pin_message] msg_id=435: SUCCESS
+[2026-03-09 01:02:27] Cleanup reached. tg_bridge=True, tg_msg_id=435
+[2026-03-09 01:02:27] source=telegram_miniapp, text_len=804
+[2026-03-09 01:02:28] Editing Telegram message (msg_id=435, status=Response via Telegram Mini App)
+[2026-03-09 01:02:39] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 01:02:39] edit_message returned: True
+[2026-03-09 01:02:41] [unpin_message] msg_id=435: SUCCESS
+[2026-03-09 01:02:41] unpin_message returned: True
+[2026-03-09 01:02:41] Final result: OK
+[2026-03-09 01:10:04] [pin_message] msg_id=437: SUCCESS
+[2026-03-09 01:24:00] Cleanup reached. tg_bridge=True, tg_msg_id=437
+[2026-03-09 01:24:00] source=telegram_miniapp, text_len=739
+[2026-03-09 01:24:00] Editing Telegram message (msg_id=437, status=Response via Telegram Mini App)
+[2026-03-09 01:24:02] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 01:24:02] edit_message returned: True
+[2026-03-09 01:24:03] [unpin_message] msg_id=437: SUCCESS
+[2026-03-09 01:24:03] unpin_message returned: True
+[2026-03-09 01:24:03] Final result: OK
+[2026-03-09 01:24:52] [pin_message] msg_id=439: SUCCESS
+[2026-03-09 01:29:31] Cleanup reached. tg_bridge=True, tg_msg_id=439
+[2026-03-09 01:29:31] source=telegram_miniapp, text_len=180
+[2026-03-09 01:29:32] Editing Telegram message (msg_id=439, status=Response via Telegram Mini App)
+[2026-03-09 01:29:33] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 01:29:33] edit_message returned: True
+[2026-03-09 01:29:44] [unpin_message] msg_id=439: SUCCESS
+[2026-03-09 01:29:44] unpin_message returned: True
+[2026-03-09 01:29:44] Final result: OK
+[2026-03-09 01:30:23] [pin_message] msg_id=441: SUCCESS
+[2026-03-09 01:32:19] Cleanup reached. tg_bridge=True, tg_msg_id=441
+[2026-03-09 01:32:19] source=telegram_miniapp, text_len=62
+[2026-03-09 01:32:20] Editing Telegram message (msg_id=441, status=Response via Telegram Mini App)
+[2026-03-09 01:32:21] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 01:32:21] edit_message returned: True
+[2026-03-09 01:32:22] [unpin_message] msg_id=441: SUCCESS
+[2026-03-09 01:32:22] unpin_message returned: True
+[2026-03-09 01:32:22] Final result: OK
+[2026-03-09 02:13:14] [pin_message] msg_id=443: SUCCESS
+[2026-03-09 02:17:54] Cleanup reached. tg_bridge=True, tg_msg_id=443
+[2026-03-09 02:17:54] source=telegram_miniapp, text_len=128
+[2026-03-09 02:17:55] Editing Telegram message (msg_id=443, status=Response via Telegram Mini App)
+[2026-03-09 02:17:56] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 02:17:56] edit_message returned: True
+[2026-03-09 02:18:07] [unpin_message] msg_id=443: SUCCESS
+[2026-03-09 02:18:07] unpin_message returned: True
+[2026-03-09 02:18:07] Final result: OK
+[2026-03-09 02:18:29] [pin_message] msg_id=445: SUCCESS
+[2026-03-09 02:21:29] Cleanup reached. tg_bridge=True, tg_msg_id=445
+[2026-03-09 02:21:29] source=telegram_miniapp, text_len=137
+[2026-03-09 02:21:30] Editing Telegram message (msg_id=445, status=Response via Telegram Mini App)
+[2026-03-09 02:21:41] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 02:21:41] edit_message returned: True
+[2026-03-09 02:21:42] [unpin_message] msg_id=445: SUCCESS
+[2026-03-09 02:21:42] unpin_message returned: True
+[2026-03-09 02:21:42] Final result: OK
+[2026-03-09 11:24:24] [pin_message] msg_id=447: SUCCESS
+[2026-03-09 11:34:00] Cleanup reached. tg_bridge=True, tg_msg_id=447
+[2026-03-09 11:34:00] source=tkinter, text_len=173
+[2026-03-09 11:34:00] Editing Telegram message (msg_id=447, status=User answered via local dialog)
+[2026-03-09 11:34:01] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 11:34:01] edit_message returned: True
+[2026-03-09 11:34:03] [unpin_message] msg_id=447: SUCCESS
+[2026-03-09 11:34:03] unpin_message returned: True
+[2026-03-09 11:34:03] Final result: OK
+[2026-03-09 11:42:04] [pin_message] msg_id=449: SUCCESS
+[2026-03-09 11:42:25] Cleanup reached. tg_bridge=True, tg_msg_id=449
+[2026-03-09 11:42:25] source=telegram_reply, text_len=4
+[2026-03-09 11:42:25] Editing Telegram message (msg_id=449, status=Response via Telegram reply)
+[2026-03-09 11:42:27] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 11:42:27] edit_message returned: True
+[2026-03-09 11:42:28] [unpin_message] msg_id=449: SUCCESS
+[2026-03-09 11:42:28] unpin_message returned: True
+[2026-03-09 11:42:28] Final result: OK
+[2026-03-09 11:44:55] [pin_message] msg_id=463: SUCCESS
+[2026-03-09 11:54:21] Cleanup reached. tg_bridge=True, tg_msg_id=463
+[2026-03-09 11:54:21] source=telegram_miniapp, text_len=1014
+[2026-03-09 11:54:22] Editing Telegram message (msg_id=463, status=Response via Telegram Mini App)
+[2026-03-09 11:54:25] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 11:54:25] edit_message returned: True
+[2026-03-09 11:54:36] [unpin_message] msg_id=463: SUCCESS
+[2026-03-09 11:54:36] unpin_message returned: True
+[2026-03-09 11:54:36] Final result: OK
+[2026-03-09 12:14:09] [pin_message] msg_id=465: SUCCESS
+[2026-03-09 12:16:35] Cleanup reached. tg_bridge=True, tg_msg_id=465
+[2026-03-09 12:16:35] source=telegram_miniapp, text_len=318
+[2026-03-09 12:16:35] Editing Telegram message (msg_id=465, status=Response via Telegram Mini App)
+[2026-03-09 12:16:37] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 12:16:37] edit_message returned: True
+[2026-03-09 12:16:48] [unpin_message] msg_id=465: SUCCESS
+[2026-03-09 12:16:48] unpin_message returned: True
+[2026-03-09 12:16:48] Final result: OK
+[2026-03-09 12:19:10] [pin_message] msg_id=467: SUCCESS
+[2026-03-09 12:26:44] Cleanup reached. tg_bridge=True, tg_msg_id=467
+[2026-03-09 12:26:44] source=telegram_miniapp, text_len=69
+[2026-03-09 12:26:45] Editing Telegram message (msg_id=467, status=Response via Telegram Mini App)
+[2026-03-09 12:26:46] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 12:26:46] edit_message returned: True
+[2026-03-09 12:26:47] [unpin_message] msg_id=467: SUCCESS
+[2026-03-09 12:26:47] unpin_message returned: True
+[2026-03-09 12:26:47] Final result: OK
+[2026-03-09 12:27:23] [pin_message] msg_id=469: SUCCESS
+[2026-03-09 13:15:17] [pin_message] msg_id=471: SUCCESS
+[2026-03-09 13:28:30] Cleanup reached. tg_bridge=True, tg_msg_id=471
+[2026-03-09 13:28:30] source=telegram_miniapp, text_len=68
+[2026-03-09 13:28:30] Editing Telegram message (msg_id=471, status=Response via Telegram Mini App)
+[2026-03-09 13:28:32] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 13:28:32] edit_message returned: True
+[2026-03-09 13:28:33] [unpin_message] msg_id=471: SUCCESS
+[2026-03-09 13:28:33] unpin_message returned: True
+[2026-03-09 13:28:33] Final result: OK
+[2026-03-09 13:30:11] Cleanup reached. tg_bridge=True, tg_msg_id=469
+[2026-03-09 13:30:11] source=tkinter, text_len=73
+[2026-03-09 13:30:11] Editing Telegram message (msg_id=469, status=User answered via local dialog)
+[2026-03-09 13:30:13] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 13:30:13] edit_message returned: True
+[2026-03-09 13:30:15] [unpin_message] msg_id=469: SUCCESS
+[2026-03-09 13:30:15] unpin_message returned: True
+[2026-03-09 13:30:15] Final result: OK
+[2026-03-09 13:41:12] [pin_message] msg_id=473: SUCCESS
+[2026-03-09 13:43:44] Cleanup reached. tg_bridge=True, tg_msg_id=473
+[2026-03-09 13:43:44] source=tkinter, text_len=105
+[2026-03-09 13:43:44] Editing Telegram message (msg_id=473, status=User answered via local dialog)
+[2026-03-09 13:43:46] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 13:43:46] edit_message returned: True
+[2026-03-09 13:43:47] [unpin_message] msg_id=473: SUCCESS
+[2026-03-09 13:43:47] unpin_message returned: True
+[2026-03-09 13:43:47] Final result: OK
+[2026-03-09 13:48:41] [pin_message] msg_id=475: SUCCESS
+[2026-03-09 13:48:56] Cleanup reached. tg_bridge=True, tg_msg_id=475
+[2026-03-09 13:48:56] source=tkinter, text_len=0
+[2026-03-09 13:48:56] Editing Telegram message (msg_id=475, status=Cancelled locally)
+[2026-03-09 13:48:57] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 13:48:57] edit_message returned: True
+[2026-03-09 13:48:59] [unpin_message] msg_id=475: SUCCESS
+[2026-03-09 13:48:59] unpin_message returned: True
+[2026-03-09 13:48:59] Final result: OK
+[2026-03-09 13:49:17] [pin_message] msg_id=477: SUCCESS
+[2026-03-09 13:49:52] Cleanup reached. tg_bridge=True, tg_msg_id=477
+[2026-03-09 13:49:52] source=tkinter, text_len=0
+[2026-03-09 13:49:54] Editing Telegram message (msg_id=477, status=Cancelled locally)
+[2026-03-09 13:49:56] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 13:49:56] edit_message returned: True
+[2026-03-09 13:49:57] [unpin_message] msg_id=477: SUCCESS
+[2026-03-09 13:49:57] unpin_message returned: True
+[2026-03-09 13:49:57] Final result: OK
+[2026-03-09 13:50:46] [pin_message] msg_id=479: SUCCESS
+[2026-03-09 13:51:36] Cleanup reached. tg_bridge=True, tg_msg_id=479
+[2026-03-09 13:51:36] source=tkinter, text_len=0
+[2026-03-09 13:51:38] Editing Telegram message (msg_id=479, status=Cancelled locally)
+[2026-03-09 13:51:40] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 13:51:40] edit_message returned: True
+[2026-03-09 13:51:41] [unpin_message] msg_id=479: SUCCESS
+[2026-03-09 13:51:41] unpin_message returned: True
+[2026-03-09 13:51:41] Final result: OK
+[2026-03-09 13:56:48] [pin_message] msg_id=481: SUCCESS
+[2026-03-09 14:03:10] Cleanup reached. tg_bridge=True, tg_msg_id=481
+[2026-03-09 14:03:10] source=tkinter, text_len=462
+[2026-03-09 14:03:12] Editing Telegram message (msg_id=481, status=User answered via local dialog)
+[2026-03-09 14:03:13] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 14:03:13] edit_message returned: True
+[2026-03-09 14:03:15] [unpin_message] msg_id=481: SUCCESS
+[2026-03-09 14:03:15] unpin_message returned: True
+[2026-03-09 14:03:15] Final result: OK
+[2026-03-09 14:11:35] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-09 14:11:35] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-09 14:22:51] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-09 14:22:51] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-09 14:27:53] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-09 14:27:53] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-09 14:31:05] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Need assistance?'
+[2026-03-09 14:31:18] [pin_message] msg_id=490: SUCCESS
+[2026-03-09 14:31:18] Dual-channel setup complete. telegram=True, tkinter=True, tg_msg_id=490, miniapp=active
+[2026-03-09 14:34:40] Cleanup reached. tg_bridge=True, tg_msg_id=490
+[2026-03-09 14:34:40] source=tkinter, text_len=345
+[2026-03-09 14:34:42] Editing Telegram message (msg_id=490, status=User answered via local dialog)
+[2026-03-09 14:34:44] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 14:34:44] edit_message returned: True
+[2026-03-09 14:34:45] [unpin_message] msg_id=490: SUCCESS
+[2026-03-09 14:34:45] unpin_message returned: True
+[2026-03-09 14:34:45] Final result: OK
+[2026-03-09 14:37:49] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Awaiting Test Results'
+[2026-03-09 14:38:10] [pin_message] msg_id=505: SUCCESS
+[2026-03-09 14:38:10] Dual-channel setup complete. telegram=True, tkinter=True, tg_msg_id=505, miniapp=active
+[2026-03-09 14:39:30] Cleanup reached. tg_bridge=True, tg_msg_id=505
+[2026-03-09 14:39:30] source=tkinter, text_len=469
+[2026-03-09 14:39:32] Editing Telegram message (msg_id=505, status=User answered via local dialog)
+[2026-03-09 14:39:34] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 14:39:34] edit_message returned: True
+[2026-03-09 14:39:35] [unpin_message] msg_id=505: SUCCESS
+[2026-03-09 14:39:35] unpin_message returned: True
+[2026-03-09 14:39:35] Final result: OK
+[2026-03-09 14:54:09] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='PID Check Fix Applied'
+[2026-03-09 14:54:48] Dual-channel setup complete. telegram=False, tkinter=True, tg_msg_id=None, miniapp=none
+[2026-03-09 14:56:41] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-09 14:56:41] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-09 15:08:10] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Awaiting Test Results'
+[2026-03-09 15:08:25] [pin_message] msg_id=531: SUCCESS
+[2026-03-09 15:08:25] Dual-channel setup complete. telegram=True, tkinter=True, tg_msg_id=531, miniapp=active
+[2026-03-09 15:09:39] Cleanup reached. tg_bridge=True, tg_msg_id=531
+[2026-03-09 15:09:39] source=tkinter, text_len=170
+[2026-03-09 15:09:39] Editing Telegram message (msg_id=531, status=User answered via local dialog)
+[2026-03-09 15:09:40] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 15:09:40] edit_message returned: True
+[2026-03-09 15:09:41] [unpin_message] msg_id=531: SUCCESS
+[2026-03-09 15:09:41] unpin_message returned: True
+[2026-03-09 15:09:41] Final result: OK
+[2026-03-09 15:09:55] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Hub Data Location Change'
+[2026-03-09 15:10:22] Dual-channel setup complete. telegram=False, tkinter=True, tg_msg_id=None, miniapp=none
+[2026-03-09 15:16:15] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Plano de Aprofundamento — Fase 2'
+[2026-03-09 15:16:30] [pin_message] msg_id=533: SUCCESS
+[2026-03-09 15:16:30] Dual-channel setup complete. telegram=True, tkinter=True, tg_msg_id=533, miniapp=active
+[2026-03-09 15:17:02] Cleanup reached. tg_bridge=True, tg_msg_id=533
+[2026-03-09 15:17:02] source=tkinter, text_len=87
+[2026-03-09 15:17:02] Editing Telegram message (msg_id=533, status=User answered via local dialog)
+[2026-03-09 15:17:04] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 15:17:04] edit_message returned: True
+[2026-03-09 15:17:07] [unpin_message] msg_id=533: SUCCESS
+[2026-03-09 15:17:07] unpin_message returned: True
+[2026-03-09 15:17:07] Final result: OK
+[2026-03-09 16:37:20] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Investigation Plan For MCP Server Issues'
+[2026-03-09 16:37:33] Dual-channel setup complete. telegram=False, tkinter=True, tg_msg_id=None, miniapp=none
+[2026-03-09 16:43:17] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-09 16:43:17] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-09 16:45:42] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Brief Orchestrator Plan'
+[2026-03-09 16:45:58] Dual-channel setup complete. telegram=False, tkinter=True, tg_msg_id=None, miniapp=none
+[2026-03-09 16:54:50] Cleanup reached. tg_bridge=False, tg_msg_id=None
+[2026-03-09 16:54:50] Skipped Telegram cleanup (bridge or msg_id not set)
+[2026-03-09 16:55:05] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Summarized Investigation Plan'
+[2026-03-09 16:55:24] [pin_message] msg_id=535: SUCCESS
+[2026-03-09 16:55:24] Dual-channel setup complete. telegram=True, tkinter=True, tg_msg_id=535, miniapp=active
+[2026-03-09 16:57:10] Cleanup reached. tg_bridge=True, tg_msg_id=535
+[2026-03-09 16:57:10] source=tkinter, text_len=49
+[2026-03-09 16:57:10] Editing Telegram message (msg_id=535, status=User answered via local dialog)
+[2026-03-09 16:57:11] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 16:57:11] edit_message returned: True
+[2026-03-09 16:57:13] [unpin_message] msg_id=535: SUCCESS
+[2026-03-09 16:57:13] unpin_message returned: True
+[2026-03-09 16:57:13] Final result: OK
+[2026-03-09 17:01:40] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Execution Summary'
+[2026-03-09 17:02:03] [pin_message] msg_id=537: SUCCESS
+[2026-03-09 17:02:03] Dual-channel setup complete. telegram=True, tkinter=True, tg_msg_id=537, miniapp=active
+[2026-03-09 17:05:50] Cleanup reached. tg_bridge=True, tg_msg_id=537
+[2026-03-09 17:05:50] source=telegram_miniapp, text_len=230
+[2026-03-09 17:05:50] Editing Telegram message (msg_id=537, status=Response via Telegram Mini App)
+[2026-03-09 17:05:52] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 17:05:52] edit_message returned: True
+[2026-03-09 17:05:53] [unpin_message] msg_id=537: SUCCESS
+[2026-03-09 17:05:53] unpin_message returned: True
+[2026-03-09 17:05:53] Final result: OK
+[2026-03-09 17:09:12] create_remote_input_dialog() called. telegram_configured=True, TelegramBridge=available, shared_mode=auto, title='Telegram Failure Diagnosis'
+[2026-03-09 17:09:27] [pin_message] msg_id=541: SUCCESS
+[2026-03-09 17:09:27] Dual-channel setup complete. telegram=True, tkinter=True, tg_msg_id=541, miniapp=active
+[2026-03-09 17:13:14] Cleanup reached. tg_bridge=True, tg_msg_id=541
+[2026-03-09 17:13:14] source=telegram_miniapp, text_len=253
+[2026-03-09 17:13:15] Editing Telegram message (msg_id=541, status=Response via Telegram Mini App)
+[2026-03-09 17:13:16] [edit_message] Attempt 1: SUCCESS (HTTP 200)
+[2026-03-09 17:13:16] edit_message returned: True
+[2026-03-09 17:13:18] [unpin_message] msg_id=541: SUCCESS
+[2026-03-09 17:13:18] unpin_message returned: True
+[2026-03-09 17:13:18] Final result: OK

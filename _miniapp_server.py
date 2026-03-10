@@ -259,5 +259,16 @@ class MiniAppHTTPServer:
             except Exception as exc:
                 print(f"[MiniAppServer] Warning: HTTP server shutdown error "
                       f"(port {self._port}): {exc}")
+            finally:
+                try:
+                    self._httpd.server_close()
+                except Exception as exc:
+                    print(f"[MiniAppServer] Warning: HTTP server close error "
+                          f"(port {self._port}): {exc}")
         if self._thread is not None:
             self._thread.join(timeout=3.0)
+            if self._thread.is_alive():
+                print(f"[MiniAppServer] Warning: HTTP server thread did not stop "
+                      f"cleanly on port {self._port}.")
+        self._httpd = None
+        self._thread = None

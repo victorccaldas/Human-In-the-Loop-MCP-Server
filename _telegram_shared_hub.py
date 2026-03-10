@@ -28,6 +28,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
 
+from _hitl_logs import get_shared_telegram_logs_dir
+
 try:
     import requests
 except ImportError:  # pragma: no cover - validated by the caller at runtime
@@ -486,14 +488,15 @@ def get_runtime_paths(credentials: Optional[TelegramCredentials] = None) -> Runt
     scope_key = creds.scope_key if creds else "default"
     root_dir = _ensure_dir(os.path.join(get_host_runtime_root(), "shared-telegram"))
     scope_dir = _ensure_dir(os.path.join(root_dir, scope_key))
+    repo_logs_dir = get_shared_telegram_logs_dir(scope_key)
     return RuntimePaths(
         root_dir=root_dir,
         scope_dir=scope_dir,
         descriptor_path=os.path.join(scope_dir, "hub-descriptor.json"),
         startup_lock_path=os.path.join(scope_dir, "hub-start.lock"),
         bypass_lock_path=os.path.join(scope_dir, "bypass_active.lock"),
-        bypass_log_path=os.path.join(scope_dir, "bypass_log.jsonl"),
-        hub_log_path=os.path.join(scope_dir, "hub.log"),
+        bypass_log_path=os.path.join(repo_logs_dir, "bypass_log.jsonl"),
+        hub_log_path=os.path.join(repo_logs_dir, "hub.log"),
         poll_lock_path=os.path.join(scope_dir, "poll-owner.lock"),
     )
 
@@ -646,17 +649,22 @@ def _find_free_port() -> int:
 
 def _acquire_startup_lock(lock_path: str, stale_after_seconds: float = 30.0) -> bool:
     """Acquire a lightweight file lock for hub startup orchestration."""
-    try:
-        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+    for attempt in range(3):
         try:
-            if time.time() - os.path.getmtime(lock_path) > stale_after_seconds:
-                _remove_file_safely(lock_path)
-                fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            else:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(lock_path) > stale_after_seconds:
+                    _remove_file_safely(lock_path)
+                    time.sleep(0.05 * (attempt + 1))
+                    continue
                 return False
-        except FileNotFoundError:
-            return False
+            except FileNotFoundError:
+                time.sleep(0.05 * (attempt + 1))
+                continue
+    else:
+        return False
 
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(f"{os.getpid()}\n")
@@ -669,7 +677,23 @@ def _release_startup_lock(lock_path: str) -> None:
 
 
 def _is_pid_alive_standalone(pid: int) -> bool:
-    """Check if a process with given PID is still running (module-level)."""
+    """Check if a process with given PID is still running (module-level).
+
+    On Windows, os.kill(pid, 0) is unreliable from DETACHED_PROCESS because
+    signal 0 maps to CTRL_C_EVENT which requires a console. We use
+    OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION) via ctypes instead.
+    """
+    if os.name == "nt":
+        import ctypes
+        _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        handle = ctypes.windll.kernel32.OpenProcess(
+            _PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        )
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return False
+    # Unix: signal 0 correctly checks process existence
     try:
         os.kill(pid, 0)
         return True
@@ -681,8 +705,56 @@ def _is_pid_alive_standalone(pid: int) -> bool:
         return False
 
 
+def _get_process_commandline(pid: int) -> str:
+    """Return the best-effort command line for *pid*, or an empty string."""
+    try:
+        if platform.system() == "Windows":
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    (
+                        "(Get-CimInstance Win32_Process -Filter \"ProcessId = "
+                        f"{pid}\").CommandLine"
+                    ),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return result.stdout.strip()
+            return ""
+        result = subprocess.run(
+            ["ps", "-o", "command=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        return ""
+    return ""
+
+
+def _process_looks_like_shared_hub(pid: int) -> bool:
+    """Return True only when *pid* appears to be a detached hub subprocess."""
+    command_line = _get_process_commandline(pid)
+    if not command_line:
+        return False
+    lowered = command_line.lower()
+    return "--telegram-hub" in lowered and _SERVER_MODULE_NAME in lowered
+
+
 def _kill_process(pid: int, log_fn=print) -> bool:
     """Attempt to terminate a process by PID. Returns True if process is dead after attempt."""
+    if not _process_looks_like_shared_hub(pid):
+        log_fn(
+            f"Refusing to kill PID {pid}: process does not look like a shared Telegram hub"
+        )
+        return False
     log_fn(f"Attempting to kill competing process PID {pid}")
     try:
         if platform.system() == "Windows":
@@ -861,6 +933,11 @@ class SharedTelegramHubClient:
                 if cancel_event.is_set():
                     break
                 if "timeout" not in str(exc).lower():
+                    from _hitl_logs import append_log_line, get_remote_input_diag_log_path
+                    append_log_line(
+                        get_remote_input_diag_log_path(),
+                        f"[hub_client] wait_for_reply exception (prompt_msg_id={prompt_message_id}): {type(exc).__name__}: {exc}"
+                    )
                     print(f"[SharedTelegramHub] wait_for_reply error: {exc}")
                 cancel_event.wait(timeout=poll_interval)
         return None
@@ -884,6 +961,11 @@ class SharedTelegramHubClient:
                 timeout=3,
             )
         except Exception as exc:
+            from _hitl_logs import append_log_line, get_remote_input_diag_log_path
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[hub_client] complete_prompt exception (prompt_msg_id={prompt_message_id}, status={status}): {type(exc).__name__}: {exc}"
+            )
             print(f"[SharedTelegramHub] complete_prompt error: {exc}")
 
     def health(self) -> dict[str, Any]:
@@ -900,6 +982,7 @@ class SharedTelegramHubClient:
 
 def _client_heartbeat_loop(base_url: str, stop_event: threading.Event) -> None:
     """Send periodic heartbeats to the shared hub."""
+    from _hitl_logs import append_log_line, get_remote_input_diag_log_path
     while not stop_event.is_set():
         try:
             requests.post(
@@ -907,14 +990,19 @@ def _client_heartbeat_loop(base_url: str, stop_event: threading.Event) -> None:
                 json={"pid": os.getpid()},
                 timeout=5,
             )
-        except Exception:
-            pass  # Hub may be temporarily unreachable; next beat will retry
+        except Exception as exc:
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[heartbeat] POST {base_url}/heartbeat failed: {type(exc).__name__}: {exc}"
+            )
         stop_event.wait(timeout=_HEARTBEAT_INTERVAL_SECONDS)
 
 
 def _start_client_heartbeat(base_url: str) -> None:
     """Start the heartbeat daemon thread (idempotent, URL-aware)."""
+    from _hitl_logs import append_log_line, get_remote_input_diag_log_path
     global _heartbeat_thread, _heartbeat_stop, _active_heartbeat_descriptor_url
+    previous_thread: Optional[threading.Thread] = None
     with _heartbeat_lock:
         if _heartbeat_thread is not None and _heartbeat_thread.is_alive():
             if _active_heartbeat_descriptor_url == base_url:
@@ -922,6 +1010,20 @@ def _start_client_heartbeat(base_url: str) -> None:
             # Hub changed (e.g., restarted on different port) — stop old heartbeat
             if _heartbeat_stop is not None:
                 _heartbeat_stop.set()
+            previous_thread = _heartbeat_thread
+
+    if previous_thread is not None and previous_thread.is_alive():
+        previous_thread.join(timeout=6.0)
+        if previous_thread.is_alive():
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[heartbeat] Previous heartbeat thread did not stop within 6s join timeout (url={_active_heartbeat_descriptor_url})"
+            )
+
+    with _heartbeat_lock:
+        if _heartbeat_thread is not None and _heartbeat_thread.is_alive():
+            if _active_heartbeat_descriptor_url == base_url:
+                return
         _heartbeat_stop = threading.Event()
         _active_heartbeat_descriptor_url = base_url
         _heartbeat_thread = threading.Thread(
@@ -931,17 +1033,37 @@ def _start_client_heartbeat(base_url: str) -> None:
             name="hub-client-heartbeat",
         )
         _heartbeat_thread.start()
+        append_log_line(
+            get_remote_input_diag_log_path(),
+            f"[heartbeat] Started client heartbeat for hub {base_url}"
+        )
 
 
 def _stop_client_heartbeat() -> None:
     """Stop the heartbeat daemon thread."""
+    from _hitl_logs import append_log_line, get_remote_input_diag_log_path
     global _heartbeat_thread, _heartbeat_stop, _active_heartbeat_descriptor_url
+    previous_thread: Optional[threading.Thread] = None
+    stopped_url = _active_heartbeat_descriptor_url
     with _heartbeat_lock:
         if _heartbeat_stop is not None:
             _heartbeat_stop.set()
+        previous_thread = _heartbeat_thread
         _heartbeat_thread = None
         _heartbeat_stop = None
         _active_heartbeat_descriptor_url = None
+    if previous_thread is not None and previous_thread.is_alive():
+        previous_thread.join(timeout=6.0)
+        if previous_thread.is_alive():
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[heartbeat] Heartbeat thread did not stop within 6s join timeout (url={stopped_url})"
+            )
+        else:
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[heartbeat] Stopped client heartbeat for hub {stopped_url}"
+            )
 
 
 def _atexit_deregister() -> None:

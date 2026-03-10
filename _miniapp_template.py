@@ -85,6 +85,8 @@ MINIAPP_HTML = """<!DOCTYPE html>
       overflow-y: auto;
       flex-shrink: 0;
       line-height: 1.5;
+      user-select: text;
+      -webkit-user-select: text;
     }
     /* Markdown rendering styles for agent prompt */
     #prompt-box h1, #prompt-box h2, #prompt-box h3,

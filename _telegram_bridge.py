@@ -29,6 +29,8 @@ import threading
 import time
 from typing import Any, Optional
 
+from _hitl_logs import append_log_line, get_remote_input_diag_log_path
+
 from _telegram_shared_hub import (
     SharedTelegramHubClient,
     detect_unsafe_direct_polling,
@@ -45,6 +47,10 @@ except ImportError:
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _DEFAULT_CONFIG = os.path.join(_SCRIPT_DIR, "telegram_config.json")
+
+
+def _write_diag_log(section: str, message: str) -> None:
+    append_log_line(get_remote_input_diag_log_path(), f"[{section}] {message}")
 
 
 class TelegramBridge:
@@ -97,6 +103,14 @@ class TelegramBridge:
         """Escape HTML special characters for parse_mode='HTML'."""
         return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
+    @staticmethod
+    def _truncate_prompt_text(prompt: str, max_prompt_len: int = 3800) -> str:
+        """Trim long prompts before transport formatting and append a plain suffix."""
+        truncated = prompt[:max_prompt_len]
+        if len(prompt) > max_prompt_len:
+            truncated += "\n... (truncated)"
+        return truncated
+
     # ------------------------------------------------------------------
     # Sending
     # ------------------------------------------------------------------
@@ -114,10 +128,7 @@ class TelegramBridge:
         Returns the sent ``message_id``, or ``None`` on failure.
         """
         # Truncate prompt to Telegram's 4096 char limit (with room for header)
-        max_prompt_len = 3800
-        truncated = prompt[:max_prompt_len]
-        if len(prompt) > max_prompt_len:
-            truncated += "\n\\.\\.\\.(truncated)"
+        truncated = self._truncate_prompt_text(prompt)
 
         text = (
             f"\U0001f5a5\ufe0f *{self._escape_md(title)}*\n\n"
@@ -125,35 +136,40 @@ class TelegramBridge:
             f"\u23f3 _Waiting for response\\.\\.\\._\n"
             f"_Reply to this message to respond\\._"
         )
-        try:
-            resp = requests.post(
-                self._api("sendMessage"),
-                json={
-                    "chat_id": self.chat_id,
-                    "text": text,
-                    "parse_mode": "MarkdownV2",
-                },
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                message_id = resp.json()["result"]["message_id"]
-                # Best-effort pinning keeps active prompts visible without ever
-                # interrupting the main request flow if Telegram rejects it.
-                self.pin_message(message_id)
-                return message_id
-            else:
+        for attempt in range(1, 4):
+            try:
+                resp = requests.post(
+                    self._api("sendMessage"),
+                    json={
+                        "chat_id": self.chat_id,
+                        "text": text,
+                        "parse_mode": "MarkdownV2",
+                    },
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    message_id = resp.json()["result"]["message_id"]
+                    self.pin_message(message_id)
+                    return message_id
+                _write_diag_log(
+                    "send_prompt",
+                    f"Attempt {attempt}: HTTP {resp.status_code} - {resp.text[:300]}",
+                )
                 try:
                     print(
                         f"[TelegramBridge] send_prompt failed: "
-                        f"HTTP {resp.status_code} \u2014 {resp.text[:300]}"
+                        f"HTTP {resp.status_code} — {resp.text[:300]}"
                     )
                 except UnicodeEncodeError:
                     pass
-        except Exception as exc:
-            try:
-                print(f"[TelegramBridge] send_prompt error: {exc}")
-            except UnicodeEncodeError:
-                pass
+            except Exception as exc:
+                _write_diag_log("send_prompt", f"Attempt {attempt}: EXCEPTION - {exc}")
+                try:
+                    print(f"[TelegramBridge] send_prompt error: {exc}")
+                except UnicodeEncodeError:
+                    pass
+            if attempt < 3:
+                time.sleep(1)
         return None
 
     def send_prompt_with_miniapp(
@@ -172,10 +188,7 @@ class TelegramBridge:
 
         Returns the sent ``message_id``, or ``None`` on failure.
         """
-        max_prompt_len = 3800
-        truncated = prompt[:max_prompt_len]
-        if len(prompt) > max_prompt_len:
-            truncated += "\n\\.\\.\\.(truncated)"
+        truncated = self._truncate_prompt_text(prompt)
 
         role_line = (
             f"\U0001f916 _{self._escape_md(name_or_role)}_\n"
@@ -188,33 +201,35 @@ class TelegramBridge:
             f"\u23f3 _Waiting for response\\.\\.\\._\n"
             f"_Tap the button below to open the response dialog\\._"
         )
-        try:
-            resp = requests.post(
-                self._api("sendMessage"),
-                json={
-                    "chat_id": self.chat_id,
-                    "text": text,
-                    "parse_mode": "MarkdownV2",
-                    "reply_markup": {
-                        "inline_keyboard": [
-                            [
-                                {
-                                    "text": "\U0001f4f2  Open Response Dialog",
-                                    "web_app": {"url": webapp_url},
-                                }
+        for attempt in range(1, 4):
+            try:
+                resp = requests.post(
+                    self._api("sendMessage"),
+                    json={
+                        "chat_id": self.chat_id,
+                        "text": text,
+                        "parse_mode": "MarkdownV2",
+                        "reply_markup": {
+                            "inline_keyboard": [
+                                [
+                                    {
+                                        "text": "\U0001f4f2  Open Response Dialog",
+                                        "web_app": {"url": webapp_url},
+                                    }
+                                ]
                             ]
-                        ]
+                        },
                     },
-                },
-                timeout=15,
-            )
-            if resp.status_code == 200:
-                message_id = resp.json()["result"]["message_id"]
-                # Best-effort pinning keeps active prompts visible without ever
-                # interrupting the main request flow if Telegram rejects it.
-                self.pin_message(message_id)
-                return message_id
-            else:
+                    timeout=15,
+                )
+                if resp.status_code == 200:
+                    message_id = resp.json()["result"]["message_id"]
+                    self.pin_message(message_id)
+                    return message_id
+                _write_diag_log(
+                    "send_prompt_with_miniapp",
+                    f"Attempt {attempt}: HTTP {resp.status_code} - {resp.text[:200]}",
+                )
                 try:
                     print(
                         f"[TelegramBridge] send_prompt_with_miniapp failed: "
@@ -222,26 +237,23 @@ class TelegramBridge:
                     )
                 except UnicodeEncodeError:
                     pass
-        except Exception as exc:
-            try:
-                print(f"[TelegramBridge] send_prompt_with_miniapp error: {exc}")
-            except UnicodeEncodeError:
-                pass
+            except Exception as exc:
+                _write_diag_log(
+                    "send_prompt_with_miniapp",
+                    f"Attempt {attempt}: EXCEPTION - {exc}",
+                )
+                try:
+                    print(f"[TelegramBridge] send_prompt_with_miniapp error: {exc}")
+                except UnicodeEncodeError:
+                    pass
+            if attempt < 3:
+                time.sleep(1)
         return None
 
     def _set_message_pin_state(self, message_id: int, *, pinned: bool) -> bool:
         """Best-effort pin/unpin helper that never raises into prompt flows."""
-        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
-
         def _log(msg):
-            try:
-                with open(diag_path, "a", encoding="utf-8") as f:
-                    f.write(
-                        f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
-                        f"[{'pin_message' if pinned else 'unpin_message'}] {msg}\n"
-                    )
-            except Exception:
-                pass
+            _write_diag_log("pin_message" if pinned else "unpin_message", msg)
 
         try:
             payload: dict[str, Any] = {
@@ -474,6 +486,10 @@ class TelegramBridge:
                     self._api("getUpdates"), params=params, timeout=8
                 )
                 if resp.status_code != 200:
+                    _write_diag_log(
+                        "poll_for_answer",
+                        f"prompt_msg_id={prompt_message_id}: getUpdates failed HTTP {resp.status_code}"
+                    )
                     time.sleep(poll_interval)
                     continue
 
@@ -537,6 +553,10 @@ class TelegramBridge:
                         )
 
             except Exception as exc:
+                _write_diag_log(
+                    "poll_for_answer",
+                    f"prompt_msg_id={prompt_message_id}: poll exception {type(exc).__name__}: {exc}"
+                )
                 if "timeout" not in str(exc).lower():
                     try:
                         print(f"[TelegramBridge] poll_for_answer error: {exc}")
@@ -579,13 +599,8 @@ class TelegramBridge:
         Only works on messages sent WITHOUT reply_markup or with InlineKeyboard.
         Messages sent with ForceReply cannot be edited (Telegram API limitation).
         """
-        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
         def _log(msg):
-            try:
-                with open(diag_path, "a", encoding="utf-8") as f:
-                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [edit_message] {msg}\n")
-            except Exception:
-                pass
+            _write_diag_log("edit_message", msg)
 
         for attempt in range(1, max_retries + 1):
             try:
@@ -622,13 +637,8 @@ class TelegramBridge:
 
         Returns True if the status message was sent successfully, False otherwise.
         """
-        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
         def _log(msg):
-            try:
-                with open(diag_path, "a", encoding="utf-8") as f:
-                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [send_status] {msg}\n")
-            except Exception:
-                pass
+            _write_diag_log("send_status", msg)
 
         try:
             resp = requests.post(
@@ -674,7 +684,6 @@ class TelegramBridge:
 
     def delete_message(self, message_id: int) -> bool:
         """Delete a message from the chat.  Returns True on success."""
-        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
         try:
             resp = requests.post(
                 self._api("deleteMessage"),
@@ -683,14 +692,7 @@ class TelegramBridge:
             )
             return resp.status_code == 200
         except Exception as exc:
-            try:
-                with open(diag_path, "a", encoding="utf-8") as f:
-                    f.write(
-                        f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
-                        f"[delete_message] msg_id={message_id}: {exc}\n"
-                    )
-            except Exception:
-                pass
+            _write_diag_log("delete_message", f"msg_id={message_id}: {exc}")
             return False
 
     def react_to_message(self, message_id: int, emoji: str = "👍") -> bool:
@@ -700,13 +702,8 @@ class TelegramBridge:
         This is best-effort and should not interrupt the main input flow.
         Failures are written to _remote_input_diag.log for diagnostics.
         """
-        diag_path = os.path.join(_SCRIPT_DIR, "_remote_input_diag.log")
         def _log(msg):
-            try:
-                with open(diag_path, "a", encoding="utf-8") as f:
-                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [react_to_message] {msg}\n")
-            except Exception:
-                pass
+            _write_diag_log("react_to_message", msg)
 
         try:
             resp = requests.post(

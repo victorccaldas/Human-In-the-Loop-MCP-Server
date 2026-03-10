@@ -10,6 +10,8 @@ Now supports both Windows and macOS platforms.
 import asyncio
 import json
 import platform
+import queue
+import re
 import subprocess
 import threading
 import time
@@ -36,6 +38,7 @@ import sys
 import os
 from pydantic import Field
 from typing import Annotated
+from _hitl_logs import append_json_line, append_log_line, get_remote_input_diag_log_path
 # Set required environment variable for FastMCP 2.8.1+
 os.environ.setdefault('FASTMCP_LOG_LEVEL', 'INFO')
 from fastmcp import FastMCP, Context
@@ -159,6 +162,43 @@ IS_LINUX = CURRENT_PLATFORM == 'linux'
 # Initialize the MCP server
 mcp = FastMCP("Human-in-the-Loop Server")
 
+
+class _DialogTimeoutError(TimeoutError):
+    """Raised when a GUI dialog does not complete before the configured timeout."""
+
+
+def _run_dialog_callable_with_timeout(dialog_callable, *args):
+    """Run a blocking dialog callable on a daemon thread with a bounded wait."""
+    result_holder: Dict[str, Any] = {}
+    done = threading.Event()
+
+    def _worker():
+        try:
+            result_holder["result"] = dialog_callable(*args)
+        except Exception as exc:
+            result_holder["error"] = exc
+        finally:
+            done.set()
+
+    worker = threading.Thread(
+        target=_worker,
+        daemon=True,
+        name=f"dialog-{getattr(dialog_callable, '__name__', 'worker')}",
+    )
+    worker.start()
+
+    timeout = _get_tool_timeout()
+    if not done.wait(timeout=timeout):
+        raise _DialogTimeoutError(
+            f"Dialog timed out after {timeout} seconds while waiting for user input."
+        )
+
+    error = result_holder.get("error")
+    if error is not None:
+        raise error
+
+    return result_holder.get("result")
+
 def _get_multiline_input_custom_prompts() -> list:
     """Return list of (active: bool, active_color: str, text: str) checkbox tuples.
 
@@ -172,17 +212,45 @@ def _get_multiline_input_custom_prompts() -> list:
         csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "custom_prompts.csv")
         if os.path.isfile(csv_path):
             prompts = []
-            with open(csv_path, encoding="utf-8", newline="") as fh:
+            with open(csv_path, encoding="utf-8-sig", newline="") as fh:
                 reader = _csv.DictReader(fh)
-                for row in reader:
-                    text = (row.get("prompt") or "").strip()
-                    if text:
-                        active = str(row.get("active", "1")).strip() not in ("0", "false", "False", "no")
-                        active_color = (row.get("active_color") or "0").strip()
-                        prompts.append((active, active_color, text))
+                fieldnames = [str(name).strip() for name in (reader.fieldnames or []) if name is not None]
+                if not fieldnames:
+                    append_log_line(
+                        get_remote_input_diag_log_path(),
+                        f"[custom_prompts] {csv_path} is empty or missing a header row.",
+                    )
+                elif "prompt" not in fieldnames:
+                    append_log_line(
+                        get_remote_input_diag_log_path(),
+                        f"[custom_prompts] {csv_path} is missing required 'prompt' column. Found: {fieldnames}",
+                    )
+                else:
+                    for row_number, row in enumerate(reader, start=2):
+                        try:
+                            text = (row.get("prompt") or "").strip()
+                            if not text:
+                                continue
+                            active = str(row.get("active", "1")).strip() not in (
+                                "0",
+                                "false",
+                                "False",
+                                "no",
+                            )
+                            active_color = (row.get("active_color") or "0").strip()
+                            prompts.append((active, active_color, text))
+                        except Exception as row_exc:
+                            append_log_line(
+                                get_remote_input_diag_log_path(),
+                                f"[custom_prompts] Skipping malformed row {row_number} in {csv_path}: {type(row_exc).__name__}: {row_exc}",
+                            )
             if prompts:
                 return prompts
     except Exception as exc:
+        append_log_line(
+            get_remote_input_diag_log_path(),
+            f"[custom_prompts] Failed to read {csv_path}: {type(exc).__name__}: {exc}. Falling back to CLI args.",
+        )
         print(f"[CustomPrompts] Failed to read custom_prompts.csv: {exc} "
               "— falling back to CLI args.")
 
@@ -317,25 +385,26 @@ def _is_bypass_active() -> bool:
     """
     bypass_lock_file = _get_bypass_lock_path()
 
-    if not os.path.exists(bypass_lock_file):
-        return False
-
     try:
         with open(bypass_lock_file, "r", encoding="utf-8") as f:
             data = _json_bypass.load(f)
 
-        expires_at = data.get("expires_at")
-        if expires_at:
-            expiry = datetime.fromisoformat(expires_at)
-            if datetime.now(timezone.utc) >= expiry:
-                # Expired — clean up
-                _deactivate_bypass("auto_expiry")
-                return False
+    except FileNotFoundError:
+        return False
 
-        return True
     except Exception:
         # If lock file is corrupted, treat as active (err on side of bypass)
         return True
+
+    expires_at = data.get("expires_at")
+    if expires_at:
+        expiry = datetime.fromisoformat(expires_at)
+        if datetime.now(timezone.utc) >= expiry:
+            # Expired — clean up
+            _deactivate_bypass("auto_expiry")
+            return False
+
+    return True
 
 
 def _activate_bypass(source: str = "unknown", duration_minutes: Optional[int] = None) -> dict:
@@ -385,11 +454,11 @@ def _log_bypass(tool_name: str, args_summary: dict) -> None:
     try:
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "pid": os.getpid(),
             "tool": tool_name,
             "args_summary": args_summary,
         }
-        with open(bypass_log_file, "a", encoding="utf-8") as f:
-            f.write(_json_bypass.dumps(entry, ensure_ascii=False) + "\n")
+        append_json_line(bypass_log_file, entry)
     except Exception as e:
         print(f"[Bypass] Logging error: {e}")
 
@@ -657,6 +726,269 @@ def get_text_font():
     else:
         return ("Ubuntu Mono", 10)  # Linux monospace font
 
+
+_INLINE_MARKDOWN_PATTERN = re.compile(
+    r"\[([^\]]+)\]\(([^)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|(?<!\*)\*([^*]+)\*(?!\*)|(?<![A-Za-z0-9_])_([^_]+?)_(?![A-Za-z0-9_])"
+)
+
+
+def _prompt_looks_like_markdown(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(^\s{0,3}#{1,6}\s)|(```|`[^`]+`)|\*\*[^*]+\*\*|\[[^\]]+\]\([^)]+\)|(^\s*[-*+]\s)|(^\|.+\|$)",
+            text,
+            re.MULTILINE,
+        )
+    )
+
+
+def _parse_inline_markdown_runs(text: str) -> List[tuple[str, tuple[str, ...]]]:
+    runs: List[tuple[str, tuple[str, ...]]] = []
+    position = 0
+    for match in _INLINE_MARKDOWN_PATTERN.finditer(text):
+        start, end = match.span()
+        if start > position:
+            runs.append((text[position:start], tuple()))
+        if match.group(1) is not None:
+            label = match.group(1)
+            url = match.group(2) or ""
+            runs.append((label, ("md_link",)))
+            if url:
+                runs.append((f" ({url})", ("md_link_url",)))
+        elif match.group(3) is not None:
+            runs.append((match.group(3), ("md_code",)))
+        elif match.group(4) is not None:
+            runs.append((match.group(4), ("md_bold",)))
+        elif match.group(5) is not None:
+            runs.append((match.group(5), ("md_italic",)))
+        elif match.group(6) is not None:
+            runs.append((match.group(6), ("md_italic",)))
+        position = end
+    if position < len(text):
+        runs.append((text[position:], tuple()))
+    return runs
+
+
+def _configure_markdown_text_tags(text_widget, theme_colors: Dict[str, str]) -> None:
+    base_font = get_system_font()
+    base_family = base_font[0]
+    base_size = base_font[1]
+    code_font = get_text_font()
+    accent = theme_colors.get("accent_color", theme_colors.get("fg_primary", "#000000"))
+    muted = theme_colors.get("fg_secondary", theme_colors.get("fg_primary", "#000000"))
+    code_bg = theme_colors.get("bg_accent", theme_colors.get("bg_secondary", "#f0f0f0"))
+    table_border = theme_colors.get("border_color", "#cccccc")
+
+    text_widget.tag_configure("md_heading1", font=(base_family, base_size + 5, "bold"), spacing1=8, spacing3=4)
+    text_widget.tag_configure("md_heading2", font=(base_family, base_size + 3, "bold"), spacing1=6, spacing3=3)
+    text_widget.tag_configure("md_heading3", font=(base_family, base_size + 1, "bold"), spacing1=4, spacing3=2)
+    text_widget.tag_configure("md_bold", font=(base_family, base_size, "bold"))
+    text_widget.tag_configure("md_italic", font=(base_family, base_size, "italic"))
+    text_widget.tag_configure("md_code", font=code_font, background=code_bg)
+    text_widget.tag_configure("md_code_block", font=code_font, background=code_bg, lmargin1=12, lmargin2=12, spacing1=4, spacing3=4)
+    text_widget.tag_configure("md_blockquote", foreground=muted, lmargin1=16, lmargin2=16)
+    text_widget.tag_configure("md_list_item", lmargin1=14, lmargin2=30)
+    text_widget.tag_configure("md_link", foreground=accent, underline=True)
+    text_widget.tag_configure("md_link_url", foreground=muted)
+    text_widget.tag_configure("md_table_header", font=(base_family, base_size, "bold"), background=code_bg)
+    text_widget.tag_configure("md_table_cell", lmargin1=8, lmargin2=8)
+    text_widget.tag_configure("md_table_row", spacing1=2, spacing3=2)
+
+
+def _insert_markdown_inline(text_widget, text: str) -> None:
+    for segment_text, tags in _parse_inline_markdown_runs(text):
+        if tags:
+            text_widget.insert(tk.END, segment_text, tags)
+        else:
+            text_widget.insert(tk.END, segment_text)
+
+
+def _is_table_separator_row(line: str) -> bool:
+    """Check if a line is a Markdown table separator (e.g., | --- | --- |)."""
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return False
+    cells = [cell.strip() for cell in stripped.split("|")[1:-1]]
+    return all(re.match(r"^:?-+:?$", cell) for cell in cells if cell)
+
+
+def _parse_table_row(line: str) -> List[str]:
+    """Parse a table row into cells, stripping outer pipes and trimming."""
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    return [cell.strip() for cell in stripped.split("|")]
+
+
+def _render_table(text_widget, lines: List[str], theme_colors: Dict[str, str]) -> int:
+    """Render a Markdown table starting from the current line index.
+    
+    Returns the number of lines consumed.
+    """
+    if len(lines) < 2:
+        return 0
+    
+    # First line must be a header row
+    if not lines[0].strip().startswith("|"):
+        return 0
+    
+    # Second line must be a separator
+    if not _is_table_separator_row(lines[1]):
+        return 0
+    
+    header_cells = _parse_table_row(lines[0])
+    num_columns = len(header_cells)
+    
+    if num_columns == 0:
+        return 0
+    
+    # Calculate column widths based on header and content
+    col_widths = [len(cell) for cell in header_cells]
+    
+    # Scan ahead to find all table rows and adjust widths
+    table_rows: List[List[str]] = []
+    consumed = 2  # header + separator
+    
+    for i in range(2, len(lines)):
+        row_line = lines[i].strip()
+        if not row_line.startswith("|") or not row_line.endswith("|"):
+            break
+        row_cells = _parse_table_row(row_line)
+        # Pad or truncate to match header column count
+        while len(row_cells) < num_columns:
+            row_cells.append("")
+        row_cells = row_cells[:num_columns]
+        table_rows.append(row_cells)
+        
+        for j, cell in enumerate(row_cells):
+            col_widths[j] = max(col_widths[j], len(cell))
+        consumed += 1
+    
+    # Render the table
+    text_widget.insert(tk.END, "\n")
+    
+    # Render header row
+    header_line = "  "
+    for i, cell in enumerate(header_cells):
+        header_line += cell.ljust(col_widths[i] + 2)
+        if i < num_columns - 1:
+            header_line += " │ "
+    text_widget.insert(tk.END, header_line + "\n", ("md_table_header", "md_table_row"))
+    
+    # Render separator
+    sep_line = "  "
+    for i in range(num_columns):
+        sep_line += "─" * (col_widths[i] + 2)
+        if i < num_columns - 1:
+            sep_line += "─┼─"
+    text_widget.insert(tk.END, sep_line + "\n", ("md_table_cell", "md_table_row"))
+    
+    # Render data rows
+    for row_cells in table_rows:
+        row_line = "  "
+        for i, cell in enumerate(row_cells):
+            row_line += cell.ljust(col_widths[i] + 2)
+            if i < num_columns - 1:
+                row_line += " │ "
+        text_widget.insert(tk.END, row_line + "\n", ("md_table_cell", "md_table_row"))
+    
+    text_widget.insert(tk.END, "\n")
+    return consumed
+
+
+def _set_prompt_text_content(text_widget, prompt: str, theme_colors: Dict[str, str]) -> None:
+    text_widget.configure(state="normal")
+    text_widget.delete("1.0", tk.END)
+    try:
+        if not _prompt_looks_like_markdown(prompt):
+            text_widget.insert("1.0", prompt)
+            return
+
+        _configure_markdown_text_tags(text_widget, theme_colors)
+        lines = prompt.splitlines()
+        in_code_block = False
+        i = 0
+        
+        while i < len(lines):
+            line = lines[i]
+            
+            # Check for code block boundaries
+            if line.strip().startswith("```"):
+                in_code_block = not in_code_block
+                i += 1
+                continue
+
+            if in_code_block:
+                text_widget.insert(tk.END, f"{line}\n", ("md_code_block",))
+                i += 1
+                continue
+
+            # Check for table (requires lookahead for separator row)
+            if line.strip().startswith("|") and i + 1 < len(lines):
+                if _is_table_separator_row(lines[i + 1]):
+                    consumed = _render_table(text_widget, lines[i:], theme_colors)
+                    if consumed > 0:
+                        i += consumed
+                        continue
+
+            # Check for headings
+            heading_match = re.match(r"^\s*(#{1,3})\s+(.*)$", line)
+            if heading_match:
+                start_index = text_widget.index(tk.END)
+                _insert_markdown_inline(text_widget, heading_match.group(2).strip())
+                end_index = text_widget.index(tk.END)
+                text_widget.tag_add(f"md_heading{len(heading_match.group(1))}", start_index, end_index)
+                text_widget.insert(tk.END, "\n")
+                i += 1
+                continue
+
+            # Check for blockquotes
+            blockquote_match = re.match(r"^\s*>\s?(.*)$", line)
+            if blockquote_match:
+                start_index = text_widget.index(tk.END)
+                text_widget.insert(tk.END, "| ", ("md_blockquote",))
+                _insert_markdown_inline(text_widget, blockquote_match.group(1))
+                end_index = text_widget.index(tk.END)
+                text_widget.tag_add("md_blockquote", start_index, end_index)
+                text_widget.insert(tk.END, "\n")
+                i += 1
+                continue
+
+            # Check for list items
+            list_match = re.match(r"^(\s*)([-*+]|\d+\.)\s+(.*)$", line)
+            if list_match:
+                start_index = text_widget.index(tk.END)
+                marker = list_match.group(2)
+                marker_text = "•" if marker in ("-", "*", "+") else marker
+                text_widget.insert(tk.END, f"{marker_text} ", ("md_list_item",))
+                _insert_markdown_inline(text_widget, list_match.group(3))
+                end_index = text_widget.index(tk.END)
+                text_widget.tag_add("md_list_item", start_index, end_index)
+                text_widget.insert(tk.END, "\n")
+                i += 1
+                continue
+
+            # Default: render inline markdown
+            _insert_markdown_inline(text_widget, line)
+            text_widget.insert(tk.END, "\n")
+            i += 1
+            
+    except Exception:
+        text_widget.delete("1.0", tk.END)
+        text_widget.insert("1.0", prompt)
+    finally:
+        text_widget.configure(state="disabled")
+
+
+def _enable_readonly_text_selection(text_widget, copy_callback=None) -> None:
+    text_widget.configure(cursor="xterm")
+    text_widget.bind("<Button-1>", lambda event: event.widget.focus_set())
+    if copy_callback is not None:
+        text_widget.bind("<Control-c>", copy_callback)
+        text_widget.bind("<Control-C>", copy_callback)
+
 def get_theme_colors():
     """Get modern theme colors based on platform"""
     if IS_WINDOWS:
@@ -870,6 +1202,10 @@ def ensure_gui_initialized():
                 test_root.destroy()
                 _gui_initialized = True
             except Exception as e:
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    f"[gui_init] GUI initialization failed: {type(e).__name__}: {e}"
+                )
                 print(f"Warning: GUI initialization failed: {e}")
                 _gui_initialized = False
         return _gui_initialized
@@ -890,6 +1226,7 @@ def _ensure_persistent_root():
         import queue as _queue_module
         _dialog_request_queue = _queue_module.Queue()
         ready = threading.Event()
+        startup_error: Dict[str, Exception] = {}
 
         def _poll():
             """Drain the request queue and re-schedule (runs on GUI thread)."""
@@ -899,26 +1236,73 @@ def _ensure_persistent_root():
                     try:
                         fn()
                     except Exception as exc:
+                        append_log_line(
+                            get_remote_input_diag_log_path(),
+                            f"[gui_poll] Unhandled exception executing queued dialog callable {fn!r}: {type(exc).__name__}: {exc}"
+                        )
                         print(f"[GUIThread] Unhandled exception executing queued dialog "
                               f"callable {fn!r}: {type(exc).__name__}: {exc}")
-            except Exception:
-                pass  # queue.Empty — nothing to do
+            except queue.Empty:
+                pass
+            except Exception as exc:
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    f"[gui_poll] Unexpected queue polling error: {type(exc).__name__}: {exc}",
+                )
+                print(f"[GUIThread] Unexpected polling error: {type(exc).__name__}: {exc}")
             if _persistent_root and _persistent_root.winfo_exists():
                 _persistent_root.after(30, _poll)
 
         def _gui_loop():
             global _persistent_root
-            _persistent_root = tk.Tk()
-            _persistent_root.withdraw()  # hidden root; all dialogs are Toplevels
-            ready.set()
-            _persistent_root.after(30, _poll)  # start the polling loop
-            _persistent_root.mainloop()
+            try:
+                _persistent_root = tk.Tk()
+                _persistent_root.withdraw()  # hidden root; all dialogs are Toplevels
+                _persistent_root.after(30, _poll)  # start the polling loop
+            except Exception as exc:
+                startup_error["error"] = exc
+                _persistent_root = None
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    f"[gui_startup] Failed to initialize persistent Tk root: {type(exc).__name__}: {exc}",
+                )
+            finally:
+                ready.set()
+
+            if _persistent_root is not None:
+                _persistent_root.mainloop()
 
         _persistent_gui_thread = threading.Thread(
             target=_gui_loop, daemon=True, name="tkinter-gui-thread"
         )
         _persistent_gui_thread.start()
-        ready.wait(timeout=5)
+        if not ready.wait(timeout=5):
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                "[gui_startup] Timed out waiting for the persistent Tk root to initialize.",
+            )
+            return None
+        if startup_error:
+            return None
+        if _persistent_root is None:
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                "[gui_startup] Tk root thread reported ready without a live root instance.",
+            )
+            return None
+        try:
+            if not _persistent_root.winfo_exists():
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    "[gui_startup] Tk root was created but is no longer alive.",
+                )
+                return None
+        except Exception as exc:
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[gui_startup] Failed to validate persistent Tk root: {type(exc).__name__}: {exc}",
+            )
+            return None
     return _persistent_root
 
 def configure_window_for_platform(window):
@@ -1045,9 +1429,9 @@ class ModernInputDialog:
             pady=6,
             highlightthickness=0
         )
-        prompt_text.insert("1.0", prompt)
-        prompt_text.configure(state="disabled")
+        _set_prompt_text_content(prompt_text, prompt, self.theme_colors)
         prompt_text.grid(row=0, column=0, sticky="nsew")
+        _enable_readonly_text_selection(prompt_text)
 
         # Vertical scrollbar (styled and visible to indicate scrollability)
         prompt_scroll = tk.Scrollbar(prompt_inner, orient="vertical", command=prompt_text.yview, width=14)
@@ -1528,9 +1912,9 @@ class ChoiceDialog:
             pady=4,
             highlightthickness=0
         )
-        prompt_text.insert("1.0", prompt)
-        prompt_text.configure(state="disabled")
+        _set_prompt_text_content(prompt_text, prompt, self.theme_colors)
         prompt_text.grid(row=0, column=0, sticky="nsew")
+        _enable_readonly_text_selection(prompt_text)
 
         prompt_scroll = tk.Scrollbar(prompt_inner, orient="vertical", command=prompt_text.yview, width=12)
         apply_modern_style(prompt_scroll, "scrollbar", self.theme_colors)
@@ -1640,6 +2024,7 @@ class MultilineInputDialog:
     def __init__(self, parent, title, prompt, default_value="", done_event=None):
         self.result = None
         self._done_event = done_event  # set by ok/cancel to unblock the caller
+        self._destroying = False
         
         # Get theme colors
         self.theme_colors = get_theme_colors()
@@ -1706,10 +2091,10 @@ class MultilineInputDialog:
             pady=6,
             highlightthickness=0
         )
-        prompt_text.insert("1.0", prompt)
-        prompt_text.configure(state="disabled")
+        _set_prompt_text_content(prompt_text, prompt, self.theme_colors)
         prompt_text.grid(row=0, column=0, sticky="nsew")
         self.prompt_text = prompt_text
+        _enable_readonly_text_selection(prompt_text, self._copy_selected_prompt_text)
 
         prompt_scroll = tk.Scrollbar(prompt_inner, orient="vertical", command=prompt_text.yview, width=14)
         apply_modern_style(prompt_scroll, "scrollbar", self.theme_colors)
@@ -1868,6 +2253,34 @@ class MultilineInputDialog:
 
         # No wait_window() here — the caller thread blocks on self._done_event.wait()
         # instead, allowing multiple dialogs to be open and active simultaneously.
+
+    def _cancel_pending_reminder(self):
+        try:
+            if self._reminder_id is not None:
+                self.dialog.after_cancel(self._reminder_id)
+        except Exception:
+            pass
+
+    def _dialog_exists(self) -> bool:
+        try:
+            return bool(self.dialog.winfo_exists())
+        except Exception:
+            return False
+
+    def _begin_close(self) -> bool:
+        if self._destroying:
+            return False
+        self._destroying = True
+        self._cancel_pending_reminder()
+        return True
+
+    def _safe_destroy(self):
+        if not self._dialog_exists():
+            return
+        try:
+            self.dialog.destroy()
+        except Exception:
+            pass
     
     def center_window(self):
         """Center the dialog window on screen"""
@@ -1949,12 +2362,8 @@ class MultilineInputDialog:
         return "break"
 
     def ok_clicked(self):
-        # Cancel any pending reminder callback before closing.
-        try:
-            if self._reminder_id is not None:
-                self.dialog.after_cancel(self._reminder_id)
-        except Exception:
-            pass
+        if not self._begin_close():
+            return
         base = self.text_widget.get("1.0", tk.END).strip()
         # Append checked custom prompts to the answer
         custom_prompts = _get_multiline_input_custom_prompts()
@@ -1963,19 +2372,15 @@ class MultilineInputDialog:
             separator = "\n\n" if base else ""
             base = base + separator + "\n\n".join(checked)
         self.result = base
-        self.dialog.destroy()
+        self._safe_destroy()
         if self._done_event is not None:
             self._done_event.set()
 
     def cancel_clicked(self):
-        # Cancel any pending reminder callback before closing.
-        try:
-            if self._reminder_id is not None:
-                self.dialog.after_cancel(self._reminder_id)
-        except Exception:
-            pass
+        if not self._begin_close():
+            return
         self.result = None
-        self.dialog.destroy()
+        self._safe_destroy()
         if self._done_event is not None:
             self._done_event.set()
 
@@ -2031,11 +2436,13 @@ async def get_user_input(
                 "platform": CURRENT_PLATFORM
             }
 
-        # Create the dialog in a separate thread to avoid blocking
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(create_input_dialog, title, prompt, default_value, input_type)
-            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
+        result = _run_dialog_callable_with_timeout(
+            create_input_dialog,
+            title,
+            prompt,
+            default_value,
+            input_type,
+        )
 
         if result is not None:
             if ctx:
@@ -2057,6 +2464,18 @@ async def get_user_input(
                 "cancelled": True,
                 "platform": CURRENT_PLATFORM
             }
+
+    except _DialogTimeoutError as e:
+        if ctx:
+            await ctx.warning(str(e))
+        return {
+            "success": False,
+            "user_input": None,
+            "input_type": input_type,
+            "cancelled": True,
+            "error": str(e),
+            "platform": CURRENT_PLATFORM
+        }
 
     except Exception as e:
         if ctx:
@@ -2105,11 +2524,13 @@ async def get_user_choice(
                 "platform": CURRENT_PLATFORM
             }
         
-        # Create the dialog in a separate thread
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(create_choice_dialog, title, prompt, choices, allow_multiple)
-            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
+        result = _run_dialog_callable_with_timeout(
+            create_choice_dialog,
+            title,
+            prompt,
+            choices,
+            allow_multiple,
+        )
         
         if result is not None:
             if ctx:
@@ -2134,6 +2555,19 @@ async def get_user_choice(
                 "platform": CURRENT_PLATFORM
             }
     
+    except _DialogTimeoutError as e:
+        if ctx:
+            await ctx.warning(str(e))
+        return {
+            "success": False,
+            "selected_choice": None,
+            "selected_choices": [],
+            "allow_multiple": allow_multiple,
+            "cancelled": True,
+            "error": str(e),
+            "platform": CURRENT_PLATFORM
+        }
+
     except Exception as e:
         if ctx:
             await ctx.error(f"Error creating choice dialog: {str(e)}")
@@ -2386,6 +2820,8 @@ def create_remote_input_dialog(
             "source": None,
             "dialog": None,
         }
+        fallback_notice: Optional[str] = None
+        completion_lock = threading.Lock()
         prompt_cleanup_state = {
             "completed": False,
             "unpinned": False,
@@ -2394,18 +2830,31 @@ def create_remote_input_dialog(
         # -- Diagnostic logger (defined early so all code paths can use it) --
         # Charmap-safe: writes UTF-8 to file, ASCII-only to stdout to avoid
         # Windows encoding errors.
-        _diag_log = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_remote_input_diag.log")
         def _diag(msg):
-            try:
-                with open(_diag_log, "a", encoding="utf-8") as f:
-                    f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
-            except Exception:
-                pass
+            append_log_line(get_remote_input_diag_log_path(), msg)
             try:
                 safe = msg.encode("ascii", "replace").decode("ascii")
                 print(f"[RemoteInput] {safe}")
             except Exception:
                 pass
+
+        def _set_fallback_notice(reason: str) -> None:
+            nonlocal fallback_notice
+            fallback_notice = reason
+            _diag(f"Fallback to tkinter-only active. reason={reason}")
+
+        def _claim_completion(source: str, text: Optional[str]) -> bool:
+            with completion_lock:
+                if master_done.is_set():
+                    return False
+                result_container["text"] = text
+                result_container["source"] = source
+                master_done.set()
+                _diag(
+                    f"Completion claimed by source={source}, "
+                    f"text_len={len(text) if text is not None else 0}"
+                )
+                return True
 
         # Diagnostic Point A: log Telegram availability at function entry
         _shared_mode = get_shared_telegram_mode()
@@ -2617,6 +3066,7 @@ def create_remote_input_dialog(
         if is_telegram_configured() and TelegramBridge is not None:
             try:
                 tg_bridge = TelegramBridge()
+                plain_prompt_attempted = False
 
                 # --- 1a. Attempt Mini App session (Cloudflare tunnel + HTTP server) ---
                 all_prompts = _get_multiline_input_custom_prompts()
@@ -2631,17 +3081,22 @@ def create_remote_input_dialog(
                         print(f"[RemoteInput] Telegram Mini App prompt sent (msg_id={tg_msg_id})")
                     else:
                         print("[RemoteInput] send_prompt_with_miniapp failed — falling back to plain prompt")
+                        _diag("Mini App prompt send failed; retrying with plain Telegram prompt.")
                         miniapp_session.stop()
                         miniapp_session = None
+                        plain_prompt_attempted = True
                         tg_msg_id = tg_bridge.send_prompt(title, prompt)
 
                 if not miniapp_session:
                     # Plain prompt path (no Mini App)
-                    if tg_msg_id is None:
+                    if tg_msg_id is None and not plain_prompt_attempted:
                         tg_msg_id = tg_bridge.send_prompt(title, prompt)
                     if tg_msg_id:
                         print(f"[RemoteInput] Telegram prompt sent (msg_id={tg_msg_id})")
                     else:
+                        _set_fallback_notice(
+                            "Telegram prompt send failed; continuing with the local dialog only."
+                        )
                         print("[RemoteInput] Failed to send Telegram prompt -- continuing with tkinter only")
                         tg_bridge = None
 
@@ -2663,6 +3118,10 @@ def create_remote_input_dialog(
                     f"mode_attempted={_mode_attempted}, "
                     f"hub_reachable={_hub_reachable}, "
                     f"miniapp_was_active={miniapp_session is not None}"
+                )
+                _set_fallback_notice(
+                    f"Telegram is unavailable for this request ({type(exc).__name__}: {exc}). "
+                    "Continuing with the local dialog only. See logs/remote_input_diag.log for details."
                 )
                 print(f"[RemoteInput] Telegram init error: {exc} -- continuing with tkinter only")
                 if miniapp_session:
@@ -2694,30 +3153,32 @@ def create_remote_input_dialog(
                 )
                 result_container["dialog"] = dlg
 
-                # Inject agent role label ABOVE the title if provided.
-                # We shift every existing content row down by 1 so the badge
-                # occupies row=0, the title moves to row=1, and so on.
-                _row_offset = 0
+                top_banner_rows = int(bool(name_or_role)) + int(bool(telegram_active))
+                if top_banner_rows:
+                    try:
+                        for widget in [
+                            getattr(dlg, "title_label", None),
+                            getattr(dlg, "prompt_container", None),
+                            getattr(dlg, "text_container", None),
+                            getattr(dlg, "checkbox_frame", None),
+                            getattr(dlg, "button_frame", None),
+                        ]:
+                            if widget is None:
+                                continue
+                            info = widget.grid_info()
+                            if not info:
+                                continue
+                            widget.grid(**{**info, "row": int(info.get("row", 0)) + top_banner_rows})
+                        if hasattr(dlg, "main_frame"):
+                            dlg.main_frame.rowconfigure(2, weight=0)
+                            dlg.main_frame.rowconfigure(2 + top_banner_rows, weight=1)
+                    except Exception:
+                        top_banner_rows = 0
+
+                top_banner_row = 0
+
                 if name_or_role:
                     try:
-                        # Shift existing rows down by 1
-                        for widget, orig_row in [
-                            (dlg.title_label,      0),
-                            (dlg.prompt_container, 1),
-                            (dlg.text_container,   2),
-                        ]:
-                            info = widget.grid_info()
-                            widget.grid(**{**info, "row": orig_row + 1})
-                        if hasattr(dlg, "checkbox_frame") and dlg.checkbox_frame is not None:
-                            info = dlg.checkbox_frame.grid_info()
-                            dlg.checkbox_frame.grid(**{**info, "row": 4})
-                        info = dlg.button_frame.grid_info()
-                        dlg.button_frame.grid(**{**info, "row": 5})
-                        # Move the expanding-row weight to the new index
-                        dlg.main_frame.rowconfigure(2, weight=0)
-                        dlg.main_frame.rowconfigure(3, weight=1)
-                        _row_offset = 1
-
                         role_label = tk.Label(
                             dlg.main_frame,
                             text=f"\U0001f916  {name_or_role}",
@@ -2728,11 +3189,12 @@ def create_remote_input_dialog(
                             padx=8,
                             pady=2,
                         )
-                        role_label.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+                        role_label.grid(row=top_banner_row, column=0, sticky="ew", pady=(0, 4))
+                        top_banner_row += 1
                     except Exception:
                         pass
 
-                # Inject a Telegram status indicator into the dialog
+                # Inject a Telegram status indicator near the top of the dialog
                 if telegram_active:
                     try:
                         if miniapp_session:
@@ -2749,8 +3211,33 @@ def create_remote_input_dialog(
                             padx=8,
                             pady=4,
                         )
-                        tg_label.grid(row=5 + _row_offset, column=0, sticky="ew", pady=(4, 0))
+                        tg_label.grid(row=top_banner_row, column=0, sticky="ew", pady=(0, 4))
                         dlg._tg_label = tg_label
+                        top_banner_row += 1
+                    except Exception:
+                        pass
+
+                if fallback_notice:
+                    try:
+                        fallback_label = tk.Label(
+                            dlg.main_frame,
+                            text=f"Warning: {fallback_notice}",
+                            bg=dlg.theme_colors["bg_secondary"],
+                            fg=dlg.theme_colors.get("error_color", "#D93025"),
+                            font=get_system_font(),
+                            anchor="w",
+                            justify="left",
+                            wraplength=540,
+                            padx=8,
+                            pady=4,
+                        )
+                        fallback_label.grid(
+                            row=5 + top_banner_rows,
+                            column=0,
+                            sticky="ew",
+                            pady=(4, 0),
+                        )
+                        dlg._fallback_label = fallback_label
                     except Exception:
                         pass
 
@@ -2769,9 +3256,8 @@ def create_remote_input_dialog(
             if not transport_cancel.is_set() or master_done.is_set():
                 return
 
-            result_container["text"] = None
-            result_container["source"] = "transport"
-            master_done.set()
+            if not _claim_completion("transport", None):
+                return
             tg_cancel.set()
 
             def _close_tkinter():
@@ -2785,7 +3271,8 @@ def create_remote_input_dialog(
                 except Exception:
                     pass
                 try:
-                    if hasattr(dlg, '_tg_label'):
+                    dialog_exists = getattr(dlg, '_dialog_exists', lambda: True)
+                    if hasattr(dlg, '_tg_label') and dialog_exists():
                         dlg._tg_label.configure(
                             text="\u26a0\ufe0f  MCP request cancelled — closing…",
                             fg=dlg.theme_colors.get("error_color", "#D93025"),
@@ -2802,7 +3289,11 @@ def create_remote_input_dialog(
                     )
                     tkinter_done.set()
 
-            _dialog_request_queue.put(_close_tkinter)
+            if _dialog_request_queue is not None:
+                _dialog_request_queue.put(_close_tkinter)
+            else:
+                _diag("transport_cancel_monitor: GUI queue unavailable during cancel cleanup")
+                tkinter_done.set()
 
         transport_cancel_thread = threading.Thread(
             target=_transport_cancel_monitor,
@@ -2810,6 +3301,10 @@ def create_remote_input_dialog(
             name="remote-input-transport-cancel",
         )
         transport_cancel_thread.start()
+
+        if _dialog_request_queue is None:
+            _diag("GUI queue unavailable after persistent root initialization; aborting dialog creation")
+            return None
 
         _dialog_request_queue.put(_create_on_gui)
 
@@ -2836,10 +3331,10 @@ def create_remote_input_dialog(
                 # Fallback for older TelegramBridge instances without poll_for_answer
                 poll_result = tg_bridge.poll_for_reply(tg_msg_id, tg_cancel)
             reply, reply_source = _normalize_remote_answer_result(poll_result)
-            if reply is not None and not master_done.is_set():
-                result_container["text"] = reply
-                result_container["source"] = reply_source or "telegram_reply"
-                master_done.set()
+            if reply is not None and _claim_completion(
+                reply_source or "telegram_reply",
+                reply,
+            ):
 
                 # Close the tkinter dialog from the GUI thread
                 def _close_tkinter():
@@ -2854,27 +3349,42 @@ def create_remote_input_dialog(
                         pass
                     try:
                         # Update Telegram indicator to show remote answer
-                        if hasattr(dlg, '_tg_label'):
+                        dialog_exists = getattr(dlg, '_dialog_exists', lambda: True)
+                        if hasattr(dlg, '_tg_label') and dialog_exists():
                             source_label = _get_remote_source_label(reply_source)
                             dlg._tg_label.configure(
                                 text=f"\u2705  User answered via {source_label} \u2014 closing\u2026",
                                 fg=dlg.theme_colors.get("success_color", "#137333"),
                             )
                         dlg.result = reply
+                        if hasattr(dlg, '_destroying'):
+                            dlg._destroying = True
+                        destroy_dialog = getattr(dlg, '_safe_destroy', None)
+                        def _safe_destroy_dialog():
+                            if destroy_dialog is not None:
+                                destroy_dialog()
+                            else:
+                                dlg.dialog.destroy()
                         # Brief delay so user sees the status change, then close
-                        dlg.dialog.after(1200, dlg.dialog.destroy)
+                        dlg.dialog.after(1200, _safe_destroy_dialog)
                     except Exception as _exc:
                         print(f"[RemoteInput] Error updating dialog after Telegram reply: "
                               f"{type(_exc).__name__}: {_exc}")
                         try:
-                            dlg.dialog.destroy()
+                            if destroy_dialog is not None:
+                                destroy_dialog()
+                            else:
+                                dlg.dialog.destroy()
                         except Exception as _exc2:
                             print(f"[RemoteInput] Could not destroy dialog: {_exc2}")
                     # Signal the tkinter done event to unblock the monitor
                     if dlg._done_event:
                         dlg._done_event.set()
 
-                _dialog_request_queue.put(_close_tkinter)
+                if _dialog_request_queue is not None:
+                    _dialog_request_queue.put(_close_tkinter)
+                else:
+                    _diag("telegram_poller: GUI queue unavailable during remote answer cleanup")
 
         tg_thread = threading.Thread(
             target=_telegram_poller, daemon=True, name="tg-remote-input-poller"
@@ -2885,10 +3395,7 @@ def create_remote_input_dialog(
         def _tkinter_monitor():
             tkinter_done.wait()
             dlg = result_container.get("dialog")
-            if dlg and not master_done.is_set():
-                result_container["text"] = dlg.result
-                result_container["source"] = "tkinter"
-                master_done.set()
+            if dlg and _claim_completion("tkinter", dlg.result):
                 tg_cancel.set()   # stop telegram poller
 
         tk_monitor = threading.Thread(
@@ -3086,6 +3593,7 @@ async def get_remote_input(
         loop = asyncio.get_running_loop()
         transport_cancel = threading.Event()
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        allow_background_executor_shutdown = False
         worker_future = executor.submit(
             create_remote_input_dialog,
             title,
@@ -3105,12 +3613,28 @@ async def get_remote_input(
                     "Remote input transport cancelled; signalling dialog cleanup."
                 )
             try:
-                await asyncio.wait_for(asyncio.shield(result_future), timeout=2.0)
-            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                await asyncio.wait_for(
+                    asyncio.to_thread(worker_future.result, timeout=2.0),
+                    timeout=2.5,
+                )
+            except (asyncio.TimeoutError, concurrent.futures.TimeoutError):
+                allow_background_executor_shutdown = True
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    "[cancel_cleanup] Worker cleanup exceeded 2.0 seconds after transport cancellation.",
+                )
+                if ctx:
+                    await ctx.warning(
+                        "Remote input worker cleanup exceeded 2.0 seconds after cancellation."
+                    )
+            except (asyncio.CancelledError, Exception):
                 pass
             raise
         finally:
-            executor.shutdown(wait=False, cancel_futures=False)
+            executor.shutdown(
+                wait=not allow_background_executor_shutdown,
+                cancel_futures=False,
+            )
 
         if result is not None:
             if ctx:
@@ -3177,11 +3701,7 @@ async def show_confirmation_dialog(
                 "platform": CURRENT_PLATFORM
             }
         
-        # Create the dialog in a separate thread
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(show_confirmation, title, message)
-            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
+        result = _run_dialog_callable_with_timeout(show_confirmation, title, message)
         
         if ctx:
             await ctx.info(f"User confirmation result: {'Yes' if result else 'No'}")
@@ -3193,6 +3713,18 @@ async def show_confirmation_dialog(
             "platform": CURRENT_PLATFORM
         }
     
+    except _DialogTimeoutError as e:
+        if ctx:
+            await ctx.warning(str(e))
+        return {
+            "success": False,
+            "error": str(e),
+            "confirmed": False,
+            "cancelled": True,
+            "response": None,
+            "platform": CURRENT_PLATFORM
+        }
+
     except Exception as e:
         if ctx:
             await ctx.error(f"Error showing confirmation dialog: {str(e)}")
@@ -3235,11 +3767,7 @@ async def show_info_message(
                 "platform": CURRENT_PLATFORM
             }
         
-        # Create the dialog in a separate thread
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(show_info, title, message)
-            result = future.result(timeout=_get_tool_timeout())  # configurable via --tool-timeout arg
+        result = _run_dialog_callable_with_timeout(show_info, title, message)
         
         if ctx:
             await ctx.info("Info message acknowledged by user")
@@ -3250,6 +3778,17 @@ async def show_info_message(
             "platform": CURRENT_PLATFORM
         }
     
+    except _DialogTimeoutError as e:
+        if ctx:
+            await ctx.warning(str(e))
+        return {
+            "success": False,
+            "acknowledged": False,
+            "cancelled": True,
+            "error": str(e),
+            "platform": CURRENT_PLATFORM
+        }
+
     except Exception as e:
         if ctx:
             await ctx.error(f"Error showing info message: {str(e)}")
