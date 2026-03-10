@@ -3,7 +3,7 @@ dist
 build
 /__pycache__
 telegram_config.json
-_remote_input_diag.log
+logs/
 bypass_active.lock
 bypass_log.jsonl
 /tests/__pycache__
