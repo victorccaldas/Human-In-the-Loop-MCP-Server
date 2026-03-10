@@ -33,7 +33,7 @@ except ImportError:
         "with your Python installation to enable GUI tools.",
         file=_sys_tk.stderr,
     )
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any, Optional, Literal, Callable
 import sys
 import os
 from pydantic import Field
@@ -108,6 +108,14 @@ except ImportError:
             {
                 "command": "permitir_mensagens_automaticas",
                 "description": "Allow automatic VS Code approval messages",
+            },
+            {
+                "command": "tkinter_sound_on",
+                "description": "Enable tkinter beeps for new get_remote_input dialogs",
+            },
+            {
+                "command": "tkinter_sound_off",
+                "description": "Disable tkinter beeps for new get_remote_input dialogs",
             },
         ]
 
@@ -316,14 +324,66 @@ _dialog_request_queue = None  # thread-safe queue; worker threads post callables
 
 # Persistent config file (same directory as this script)
 _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dialog_config.json")
+_TELEGRAM_BOT_FILE_LIMIT_BYTES = 50 * 1024 * 1024
+
+
+def _load_dialog_config() -> dict[str, Any]:
+    if not os.path.isfile(_CONFIG_FILE):
+        return {}
+    try:
+        with open(_CONFIG_FILE, encoding="utf-8") as config_handle:
+            loaded = json.load(config_handle)
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception as exc:
+        print(f"[Config] Could not read dialog_config.json: {exc} — using defaults.")
+        return {}
+
+
+def _save_dialog_config(config_data: dict[str, Any]) -> None:
+    with open(_CONFIG_FILE, "w", encoding="utf-8") as config_handle:
+        json.dump(config_data, config_handle, indent=2)
+
+
+def _get_remote_input_notifications_enabled() -> bool:
+    try:
+        data = _load_dialog_config()
+        return bool(data.get("remote_input_notifications_enabled", True))
+    except Exception:
+        return True
+
+
+def _save_remote_input_notifications_enabled(enabled: bool) -> None:
+    data = _load_dialog_config()
+    data["remote_input_notifications_enabled"] = bool(enabled)
+    _save_dialog_config(data)
+
+
+def _set_remote_input_notifications_enabled(enabled: bool) -> str:
+    _save_remote_input_notifications_enabled(enabled)
+    state_label = "enabled" if enabled else "disabled"
+    return f"🔔 Remote-input notifications {state_label}."
+
+
+def _play_remote_input_notification_beep() -> None:
+    try:
+        if IS_WINDOWS:
+            import winsound
+
+            winsound.MessageBeep(winsound.MB_ICONASTERISK)
+        else:
+            print("\a", end="", flush=True)
+    except Exception as exc:
+        append_log_line(
+            get_remote_input_diag_log_path(),
+            f"[notification_beep] Failed to play beep: {type(exc).__name__}: {exc}",
+        )
 
 def _get_persisted_dialog_height() -> int:
     """Return the saved dialog height, or the platform default (first run)."""
     default = 530 if IS_WINDOWS else (510 if IS_MACOS else 480)
     try:
-        if os.path.isfile(_CONFIG_FILE):
-            data = json.loads(open(_CONFIG_FILE, encoding="utf-8").read())
-            return int(data.get("dialog_height", default))
+        data = _load_dialog_config()
+        return int(data.get("dialog_height", default))
     except Exception as exc:
         print(f"[Config] Could not read dialog_config.json: {exc} "
               f"— using default height {default}.")
@@ -332,19 +392,132 @@ def _get_persisted_dialog_height() -> int:
 def _save_persisted_dialog_height(height: int):
     """Persist the dialog height to dialog_config.json."""
     try:
-        data = {}
-        if os.path.isfile(_CONFIG_FILE):
-            try:
-                data = json.loads(open(_CONFIG_FILE, encoding="utf-8").read())
-            except Exception as exc:
-                print(f"[Config] dialog_config.json is corrupt ({exc}); "
-                      "existing content will be overwritten.")
-                data = {}
+        data = _load_dialog_config()
         data["dialog_height"] = height
-        with open(_CONFIG_FILE, "w", encoding="utf-8") as _f:
-            json.dump(data, _f, indent=2)
+        _save_dialog_config(data)
     except Exception as exc:
         print(f"[Config] Failed to save dialog height to dialog_config.json: {exc}")
+
+
+def _resolve_remote_input_attachment(file_path: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Validate and normalize an optional get_remote_input attachment path."""
+    if not file_path:
+        return None, None
+
+    normalized_path = os.path.abspath(os.path.expanduser(file_path))
+    if not os.path.isfile(normalized_path):
+        return None, f"Attached file does not exist: {normalized_path}"
+
+    try:
+        file_size = os.path.getsize(normalized_path)
+    except OSError as exc:
+        return None, f"Could not read attached file size: {exc}"
+
+    if file_size > _TELEGRAM_BOT_FILE_LIMIT_BYTES:
+        return None, (
+            "Attached file exceeds Telegram's 50 MB bot limit: "
+            f"{os.path.basename(normalized_path)} ({file_size} bytes)"
+        )
+
+    return normalized_path, None
+
+
+def _open_path_in_file_browser(path: str) -> bool:
+    """Reveal the original file path in the platform file manager."""
+    normalized_path = os.path.abspath(path)
+    try:
+        if IS_WINDOWS:
+            subprocess.Popen(["explorer", f"/select,{normalized_path}"])
+        elif IS_MACOS:
+            subprocess.Popen(["open", "-R", normalized_path])
+        else:
+            subprocess.Popen(["xdg-open", os.path.dirname(normalized_path) or normalized_path])
+        return True
+    except Exception as exc:
+        append_log_line(
+            get_remote_input_diag_log_path(),
+            f"[attachment_open] Failed to reveal file path {normalized_path}: {type(exc).__name__}: {exc}",
+        )
+        return False
+
+
+def _send_remote_prompt(
+    bridge: Any,
+    title: str,
+    prompt: str,
+    *,
+    attachment_path: Optional[str] = None,
+    webapp_url: Optional[str] = None,
+    name_or_role: str = "",
+) -> Optional[int]:
+    if webapp_url:
+        if attachment_path:
+            return bridge.send_prompt_with_miniapp(
+                title,
+                prompt,
+                webapp_url,
+                name_or_role,
+                attachment_path=attachment_path,
+            )
+        return bridge.send_prompt_with_miniapp(title, prompt, webapp_url, name_or_role)
+
+    if attachment_path:
+        return bridge.send_prompt(title, prompt, attachment_path=attachment_path)
+    return bridge.send_prompt(title, prompt)
+
+
+def _build_remote_input_telegram_summary(
+    title: str,
+    prompt: str,
+    source: Optional[str],
+    text: Optional[str],
+    escape_html,
+    attachment_path: Optional[str] = None,
+) -> tuple[str, str]:
+    original_limit = 180 if attachment_path else 3000
+    reply_limit = 220 if attachment_path else 2000
+
+    original_prompt_truncated = prompt[:original_limit]
+    if len(prompt) > original_limit:
+        original_prompt_truncated += "\n...(truncated)"
+
+    attachment_block = ""
+    if attachment_path:
+        attachment_block = (
+            f"\U0001f4ce Attachment: <b>{escape_html(os.path.basename(attachment_path))}</b>\n\n"
+        )
+
+    if _is_remote_telegram_source(source):
+        display_text = (text or "")[:reply_limit]
+        status_label = f"Response via {_get_remote_source_label(source)}"
+        status_footer = (
+            f"{status_label}:\n"
+            f"<blockquote expandable>{escape_html(display_text)}</blockquote>"
+        )
+    elif source == "tkinter" and text is not None:
+        display_text = (text or "")[:reply_limit]
+        status_label = "User answered via local dialog"
+        status_footer = (
+            f"\u2705 {status_label}:\n"
+            f"<blockquote expandable>{escape_html(display_text)}</blockquote>"
+        )
+    elif source == "tkinter" and text is None:
+        status_label = "Cancelled locally"
+        status_footer = f"\u274c {status_label}"
+    elif source == "transport":
+        status_label = "Request cancelled"
+        status_footer = "\u274c Request cancelled — MCP connection closed."
+    else:
+        status_label = "Timed out"
+        status_footer = f"\u23f0 {status_label}"
+
+    edited_text = (
+        f"\U0001f5a5\ufe0f <b>{escape_html(title)}</b>\n\n"
+        f"Original message:\n"
+        f"<blockquote expandable>{escape_html(original_prompt_truncated)}</blockquote>\n\n"
+        f"{attachment_block}{status_footer}"
+    )
+    return status_label, edited_text
 
 
 # ── Bypass Human Input Mode ──────────────────────────────────────────────────
@@ -590,6 +763,10 @@ def _try_handle_telegram_admin_command(tg, text: str) -> bool:
         _handle_bypass_command(tg, normalized_lower)
         return True
 
+    if normalized_lower.startswith("/tkinter_sound"):
+        _handle_notifications_command(tg, normalized_lower)
+        return True
+
     auto_message_reply = handle_vscode_auto_message_telegram_command(normalized_text)
     if auto_message_reply is not None:
         tg.send_text(auto_message_reply)
@@ -697,6 +874,26 @@ def _handle_bypass_command(tg, text: str):
 
     else:
         tg.send_text("Usage: /bypass on [minutes] | /bypass off | /bypass (status)")
+
+
+def _handle_notifications_command(tg, text: str):
+    """Handle tkinter sound toggle commands from Telegram."""
+    command = text.split(None, 1)[0].split("@", 1)[0]
+
+    if command == "/tkinter_sound_on":
+        tg.send_text(_set_remote_input_notifications_enabled(True))
+        return
+
+    if command == "/tkinter_sound_off":
+        tg.send_text(_set_remote_input_notifications_enabled(False))
+        return
+
+    if command == "/tkinter_sound":
+        state = "enabled" if _get_remote_input_notifications_enabled() else "disabled"
+        tg.send_text(f"ℹ️ Remote-input notifications are currently {state}.")
+        return
+
+    tg.send_text("Usage: /tkinter_sound_on | /tkinter_sound_off | /tkinter_sound")
 
 
 def get_system_font():
@@ -2021,10 +2218,28 @@ class ChoiceDialog:
         self.dialog.destroy()
 
 class MultilineInputDialog:
-    def __init__(self, parent, title, prompt, default_value="", done_event=None):
+    def __init__(
+        self,
+        parent,
+        title,
+        prompt,
+        default_value="",
+        done_event=None,
+        attachment_path: Optional[str] = None,
+        show_notification_toggle: bool = False,
+        notification_enabled: Optional[bool] = None,
+    ):
         self.result = None
         self._done_event = done_event  # set by ok/cancel to unblock the caller
         self._destroying = False
+        self.attachment_path = attachment_path
+        self._show_notification_toggle = show_notification_toggle
+        self._notification_enabled_var = tk.BooleanVar(
+            value=(
+                _get_remote_input_notifications_enabled()
+                if notification_enabled is None else bool(notification_enabled)
+            )
+        )
         
         # Get theme colors
         self.theme_colors = get_theme_colors()
@@ -2108,6 +2323,37 @@ class MultilineInputDialog:
                                font=(get_system_font()[0], max(get_system_font()[1]-1, 9), "bold"))
         arrow_label.grid(row=0, column=2, sticky="n", padx=(6,4), pady=(2,0))
         self.arrow_label = arrow_label
+
+        if attachment_path:
+            attachment_frame = tk.Frame(prompt_container, bg=self.theme_colors["bg_primary"])
+            attachment_frame.pack(fill="x", pady=(8, 0))
+            self.attachment_frame = attachment_frame
+
+            attachment_prefix = tk.Label(
+                attachment_frame,
+                text="Attached file:",
+                bg=self.theme_colors["bg_primary"],
+                fg=self.theme_colors["fg_secondary"],
+                font=get_system_font(),
+                anchor="w",
+            )
+            attachment_prefix.pack(side=tk.LEFT)
+
+            attachment_link = tk.Label(
+                attachment_frame,
+                text=os.path.basename(attachment_path),
+                bg=self.theme_colors["bg_primary"],
+                fg=self.theme_colors["accent_color"],
+                font=get_system_font(),
+                anchor="w",
+                cursor="hand2" if IS_WINDOWS else "pointinghand",
+            )
+            attachment_link.pack(side=tk.LEFT, padx=(8, 0))
+            attachment_link.bind("<Button-1>", self._open_attachment_link)
+            self.attachment_link = attachment_link
+        else:
+            self.attachment_frame = None
+            self.attachment_link = None
 
         # Create text widget container with modern styling
         text_container = tk.Frame(main_frame, bg=self.theme_colors["bg_primary"])
@@ -2222,6 +2468,28 @@ class MultilineInputDialog:
         height_spin.pack(side=tk.LEFT, padx=(6, 0))
         height_spin.bind("<Return>", self._on_height_change)
         height_spin.bind("<FocusOut>", self._on_height_change)
+
+        if show_notification_toggle:
+            notification_frame = tk.Frame(button_frame, bg=self.theme_colors["bg_primary"])
+            notification_frame.pack(side=tk.LEFT, padx=(16, 0))
+            self.notification_frame = notification_frame
+            notification_toggle = tk.Checkbutton(
+                notification_frame,
+                text="Beep on new remote input",
+                variable=self._notification_enabled_var,
+                command=self._on_notification_toggle,
+                bg=self.theme_colors["bg_primary"],
+                fg=self.theme_colors["fg_secondary"],
+                selectcolor=self.theme_colors["bg_primary"],
+                activebackground=self.theme_colors["bg_primary"],
+                font=get_system_font(),
+                anchor="w",
+            )
+            notification_toggle.pack(side=tk.LEFT)
+            self.notification_toggle = notification_toggle
+        else:
+            self.notification_frame = None
+            self.notification_toggle = None
 # Create modern buttons
         self.ok_button = create_modern_button(
             button_frame, "OK", self.ok_clicked, "primary", self.theme_colors
@@ -2360,6 +2628,20 @@ class MultilineInputDialog:
         except Exception:
             pass
         return "break"
+
+    def _open_attachment_link(self, event=None):
+        if self.attachment_path:
+            _open_path_in_file_browser(self.attachment_path)
+        return "break"
+
+    def _on_notification_toggle(self):
+        try:
+            _save_remote_input_notifications_enabled(self._notification_enabled_var.get())
+        except Exception as exc:
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[notification_toggle] Failed to save notification setting: {type(exc).__name__}: {exc}",
+            )
 
     def ok_clicked(self):
         if not self._begin_close():
@@ -2657,15 +2939,124 @@ async def get_multiline_input(
 # ---------------------------------------------------------------------------
 
 class MiniAppSession:
-    """Container for an active Mini App HTTP server + Cloudflare tunnel pair."""
+    """Container for an active Mini App HTTP server + Cloudflare tunnel pair.
 
-    def __init__(self, http_server, tunnel, webapp_url: str) -> None:
+    Supports automatic tunnel reconnection when cloudflared dies unexpectedly.
+    After a successful reconnect the ``webapp_url`` property reflects the new
+    public URL, and an optional ``on_url_changed`` callback is invoked so that
+    callers (e.g. the Telegram bridge) can update the InlineKeyboard button.
+    """
+
+    _MAX_RECONNECT_ATTEMPTS = 5
+    _RECONNECT_COOLDOWNS = [5, 10, 20, 30, 30]  # seconds between attempts
+
+    def __init__(self, http_server, tunnel, webapp_url: str, token: str) -> None:
         self.http_server = http_server      # MiniAppHTTPServer
         self.tunnel = tunnel                # CloudflareTunnel
         self.webapp_url = webapp_url        # Full https URL with token query param
+        self._token = token                 # Reused across reconnects
+        self._reconnect_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self.on_url_changed: Optional[Callable] = None  # (new_webapp_url) -> None
+        self._reconnect_count = 0
+
+        # Wire the tunnel death event into the auto-reconnect loop.
+        self.tunnel.set_on_tunnel_died(self._on_tunnel_died)
+        self._start_reconnect_watcher()
+
+    # ------------------------------------------------------------------
+    # Auto-reconnect
+    # ------------------------------------------------------------------
+
+    def _start_reconnect_watcher(self) -> None:
+        """Start a background thread that watches for tunnel death and reconnects."""
+        self._reconnect_thread = threading.Thread(
+            target=self._reconnect_loop,
+            daemon=True,
+            name="miniapp-tunnel-reconnect",
+        )
+        self._reconnect_thread.start()
+
+    def _on_tunnel_died(self, pid: int, exit_code) -> None:
+        """Callback from CloudflareTunnel — just logs; reconnect_loop handles the rest."""
+        msg = (
+            f"[MiniApp] cloudflared (PID {pid}) died (exit_code={exit_code}). "
+            f"Auto-reconnect will attempt to restore the tunnel."
+        )
+        print(msg)
+        append_log_line(get_remote_input_diag_log_path(), msg)
+
+    def _reconnect_loop(self) -> None:
+        """Watch for tunnel death and attempt reconnection with cooldown."""
+        while not self._stop_event.is_set():
+            # Wait until the tunnel dies or the session is stopped.
+            died = self.tunnel.process_died.wait(timeout=2.0)
+            if self._stop_event.is_set():
+                return
+            if not died:
+                continue
+
+            # The tunnel has died — attempt reconnection.
+            for attempt in range(1, self._MAX_RECONNECT_ATTEMPTS + 1):
+                if self._stop_event.is_set():
+                    return
+
+                cooldown = self._RECONNECT_COOLDOWNS[min(attempt - 1, len(self._RECONNECT_COOLDOWNS) - 1)]
+                msg = (
+                    f"[MiniApp] Tunnel reconnect attempt {attempt}/{self._MAX_RECONNECT_ATTEMPTS} "
+                    f"in {cooldown}s…"
+                )
+                print(msg)
+                append_log_line(get_remote_input_diag_log_path(), msg)
+
+                if self._stop_event.wait(timeout=cooldown):
+                    return  # Session stopped during cooldown.
+
+                try:
+                    new_url = self.tunnel.reconnect(timeout=20.0)
+                except Exception as exc:
+                    msg = f"[MiniApp] Reconnect attempt {attempt} failed: {exc}"
+                    print(msg)
+                    append_log_line(get_remote_input_diag_log_path(), msg)
+                    continue
+
+                # Reconnect succeeded — update everything.
+                self._reconnect_count += 1
+                new_webapp_url = f"{new_url.rstrip('/')}/?t={self._token}"
+                self.webapp_url = new_webapp_url
+                self.http_server._tunnel_base_url = new_url.rstrip("/")
+
+                msg = (
+                    f"[MiniApp] Tunnel reconnected successfully "
+                    f"(attempt {attempt}, new URL: {new_webapp_url})"
+                )
+                print(msg)
+                append_log_line(get_remote_input_diag_log_path(), msg)
+
+                # Notify the caller (e.g. to update Telegram button).
+                cb = self.on_url_changed
+                if cb is not None:
+                    try:
+                        cb(new_webapp_url)
+                    except Exception as exc:
+                        print(f"[MiniApp] on_url_changed callback error: {exc}")
+
+                # Wait a few seconds for CDN propagation.
+                time.sleep(3)
+                break  # Success — go back to watching.
+            else:
+                # All attempts exhausted.
+                msg = (
+                    f"[MiniApp] All {self._MAX_RECONNECT_ATTEMPTS} reconnect "
+                    f"attempts failed. MiniApp URL is permanently unreachable."
+                )
+                print(msg)
+                append_log_line(get_remote_input_diag_log_path(), msg)
+                return  # Stop watching.
 
     def stop(self) -> None:
         """Shut down both the HTTP server and the tunnel subprocess."""
+        self._stop_event.set()
         try:
             self.http_server.stop()
         except Exception:
@@ -2674,6 +3065,8 @@ class MiniAppSession:
             self.tunnel.stop()
         except Exception:
             pass
+        if self._reconnect_thread is not None:
+            self._reconnect_thread.join(timeout=3.0)
 
 
 def _build_miniapp_session(
@@ -2716,6 +3109,7 @@ def _build_miniapp_session(
 
         # Start Cloudflare tunnel (blocks up to 20 s)
         tunnel = CloudflareTunnel()
+
         try:
             public_url = tunnel.start(local_port=port, timeout=20.0)
         except TunnelNotAvailableError as exc:
@@ -2734,7 +3128,7 @@ def _build_miniapp_session(
 
         webapp_url = f"{public_url.rstrip('/')}/?t={token}"
         print(f"[MiniApp] Mini App ready at {webapp_url}")
-        return MiniAppSession(http_server, tunnel, webapp_url)
+        return MiniAppSession(http_server, tunnel, webapp_url, token)
 
     except Exception as exc:
         print(f"[MiniApp] Failed to build Mini App session: {exc}")
@@ -2793,6 +3187,7 @@ def create_remote_input_dialog(
     default_value: str = "",
     name_or_role: str = "",
     external_cancel: Optional[threading.Event] = None,
+    file_path: Optional[str] = None,
 ):
     """Create a multiline input dialog + Telegram prompt.
 
@@ -2863,7 +3258,8 @@ def create_remote_input_dialog(
             f"telegram_configured={is_telegram_configured()}, "
             f"TelegramBridge={'available' if TelegramBridge is not None else 'None'}, "
             f"shared_mode={_shared_mode}, "
-            f"title={title!r:.80}"
+            f"title={title!r:.80}, "
+            f"attachment={os.path.basename(file_path) if file_path else 'none'}"
         )
 
         def _best_effort_gui_prompt_cleanup() -> None:
@@ -2919,20 +3315,45 @@ def create_remote_input_dialog(
 
                 if _miniapp_session:
                     # MiniApp path: send prompt with InlineKeyboard "Open" button
-                    _msg_id = _tg.send_prompt_with_miniapp(
-                        title, prompt, _miniapp_session.webapp_url, name_or_role
+                    _msg_id = _send_remote_prompt(
+                        _tg,
+                        title,
+                        prompt,
+                        attachment_path=file_path,
+                        webapp_url=_miniapp_session.webapp_url,
+                        name_or_role=name_or_role,
                     )
                     if _msg_id:
                         print(f"[RemoteInput][Headless] Telegram Mini App prompt sent (msg_id={_msg_id})")
+                        # Wire auto-reconnect button update callback.
+                        _headless_tg = _tg
+                        _headless_msg_id = _msg_id
+                        def _headless_url_changed(new_url: str) -> None:
+                            try:
+                                _headless_tg.update_miniapp_button(_headless_msg_id, new_url)
+                                print(f"[MiniApp][Headless] Telegram button updated to {new_url}")
+                            except Exception as exc:
+                                print(f"[MiniApp][Headless] Failed to update Telegram button: {exc}")
+                        _miniapp_session.on_url_changed = _headless_url_changed
                     else:
                         # send_prompt_with_miniapp failed — tear down MiniApp, fall back to plain
                         print("[RemoteInput][Headless] send_prompt_with_miniapp failed — falling back to plain prompt")
                         _miniapp_session.stop()
                         _miniapp_session = None
-                        _msg_id = _tg.send_prompt(title, prompt)
+                        _msg_id = _send_remote_prompt(
+                            _tg,
+                            title,
+                            prompt,
+                            attachment_path=file_path,
+                        )
                 else:
                     # No MiniApp available — use plain prompt (original behaviour)
-                    _msg_id = _tg.send_prompt(title, prompt)
+                    _msg_id = _send_remote_prompt(
+                        _tg,
+                        title,
+                        prompt,
+                        attachment_path=file_path,
+                    )
 
                 if not _msg_id:
                     return None
@@ -2999,17 +3420,13 @@ def create_remote_input_dialog(
                 # cleanup logic from the full tkinter+Telegram path).
                 if _reply is not None:
                     _esc = _tg._escape_html
-                    _display = (_reply or "")[:2000]
-                    _source_label = _get_remote_source_label(_reply_source)
-                    _prompt_trunc = prompt[:3000]
-                    if len(prompt) > 3000:
-                        _prompt_trunc += "\n...(truncated)"
-                    _edited_text = (
-                        f"\U0001f5a5\ufe0f <b>{_esc(title)}</b>\n\n"
-                        f"Original message:\n"
-                        f"<blockquote expandable>{_esc(_prompt_trunc)}</blockquote>\n\n"
-                        f"Response via {_source_label}:\n"
-                        f"<blockquote expandable>{_esc(_display)}</blockquote>"
+                    _, _edited_text = _build_remote_input_telegram_summary(
+                        title,
+                        prompt,
+                        _reply_source,
+                        _reply,
+                        _esc,
+                        file_path,
                     )
                     try:
                         _tg.edit_message(_msg_id, _edited_text, parse_mode="HTML")
@@ -3074,23 +3491,48 @@ def create_remote_input_dialog(
 
                 if miniapp_session:
                     # Mini App path: send prompt with InlineKeyboard Open button
-                    tg_msg_id = tg_bridge.send_prompt_with_miniapp(
-                        title, prompt, miniapp_session.webapp_url, name_or_role
+                    tg_msg_id = _send_remote_prompt(
+                        tg_bridge,
+                        title,
+                        prompt,
+                        attachment_path=file_path,
+                        webapp_url=miniapp_session.webapp_url,
+                        name_or_role=name_or_role,
                     )
                     if tg_msg_id:
                         print(f"[RemoteInput] Telegram Mini App prompt sent (msg_id={tg_msg_id})")
+                        # Wire auto-reconnect button update callback.
+                        _main_tg = tg_bridge
+                        _main_msg_id = tg_msg_id
+                        def _main_url_changed(new_url: str) -> None:
+                            try:
+                                _main_tg.update_miniapp_button(_main_msg_id, new_url)
+                                print(f"[MiniApp] Telegram button updated to {new_url}")
+                            except Exception as exc:
+                                print(f"[MiniApp] Failed to update Telegram button: {exc}")
+                        miniapp_session.on_url_changed = _main_url_changed
                     else:
                         print("[RemoteInput] send_prompt_with_miniapp failed — falling back to plain prompt")
                         _diag("Mini App prompt send failed; retrying with plain Telegram prompt.")
                         miniapp_session.stop()
                         miniapp_session = None
                         plain_prompt_attempted = True
-                        tg_msg_id = tg_bridge.send_prompt(title, prompt)
+                        tg_msg_id = _send_remote_prompt(
+                            tg_bridge,
+                            title,
+                            prompt,
+                            attachment_path=file_path,
+                        )
 
                 if not miniapp_session:
                     # Plain prompt path (no Mini App)
                     if tg_msg_id is None and not plain_prompt_attempted:
-                        tg_msg_id = tg_bridge.send_prompt(title, prompt)
+                        tg_msg_id = _send_remote_prompt(
+                            tg_bridge,
+                            title,
+                            prompt,
+                            attachment_path=file_path,
+                        )
                     if tg_msg_id:
                         print(f"[RemoteInput] Telegram prompt sent (msg_id={tg_msg_id})")
                     else:
@@ -3148,10 +3590,18 @@ def create_remote_input_dialog(
                     tkinter_done.set()
                     return
 
+                dialog_kwargs: Dict[str, Any] = {"done_event": tkinter_done}
+                if file_path:
+                    dialog_kwargs["attachment_path"] = file_path
+                dialog_kwargs["show_notification_toggle"] = True
+                dialog_kwargs["notification_enabled"] = _get_remote_input_notifications_enabled()
                 dlg = MultilineInputDialog(
-                    root, title, prompt, default_value, done_event=tkinter_done
+                    root, title, prompt, default_value, **dialog_kwargs
                 )
                 result_container["dialog"] = dlg
+
+                if _get_remote_input_notifications_enabled():
+                    _play_remote_input_notification_beep()
 
                 top_banner_rows = int(bool(name_or_role)) + int(bool(telegram_active))
                 if top_banner_rows:
@@ -3450,43 +3900,14 @@ def create_remote_input_dialog(
             if _is_remote_telegram_source(source):
                 time.sleep(0.5)
 
-            # Truncate the original prompt and escape for HTML
             _esc = tg_bridge._escape_html
-            original_prompt_truncated = prompt[:3000]
-            if len(prompt) > 3000:
-                original_prompt_truncated += "\n...(truncated)"
-
-            # Build the edited message using HTML with expandable blockquotes so
-            # both the original prompt and the user reply are collapsible.
-            if _is_remote_telegram_source(source):
-                display_text = (text or "")[:2000]
-                status_label = f"Response via {_get_remote_source_label(source)}"
-                status_footer = (
-                    f"{status_label}:\n"
-                    f"<blockquote expandable>{_esc(display_text)}</blockquote>"
-                )
-            elif source == "tkinter" and text is not None:
-                display_text = (text or "")[:2000]
-                status_label = "User answered via local dialog"
-                status_footer = (
-                    f"\u2705 {status_label}:\n"
-                    f"<blockquote expandable>{_esc(display_text)}</blockquote>"
-                )
-            elif source == "tkinter" and text is None:
-                status_label = "Cancelled locally"
-                status_footer = f"\u274c {status_label}"
-            elif source == "transport":
-                status_label = "Request cancelled"
-                status_footer = "\u274c Request cancelled — MCP connection closed."
-            else:
-                status_label = "Timed out"
-                status_footer = f"\u23f0 {status_label}"
-
-            edited_text = (
-                f"\U0001f5a5\ufe0f <b>{_esc(title)}</b>\n\n"
-                f"Original message:\n"
-                f"<blockquote expandable>{_esc(original_prompt_truncated)}</blockquote>\n\n"
-                f"{status_footer}"
+            status_label, edited_text = _build_remote_input_telegram_summary(
+                title,
+                prompt,
+                source,
+                text,
+                _esc,
+                file_path,
             )
 
             _diag(f"Editing Telegram message (msg_id={tg_msg_id}, status={status_label})")
@@ -3544,6 +3965,7 @@ async def get_remote_input(
     prompt: Annotated[str, Field(description="The prompt/question to show to the user")],
     default_value: Annotated[str, Field(description="Default text to pre-fill in the text area")] = "",
     name_or_role: Annotated[str, Field(description="Name or role of the AI agent making the request (e.g. 'Orchestrator', 'Code Reviewer'). Shown as a badge in the Telegram Mini App and dialog.")] = "",
+    file_path: Annotated[Optional[str], Field(description="Optional absolute or relative file path to attach to the Telegram prompt and show as a clickable link in the local dialog.")] = None,
     ctx: Context = None
 ) -> Dict[str, Any]:
     """
@@ -3561,11 +3983,29 @@ async def get_remote_input(
     behaves identically to ``get_multiline_input`` — tkinter only.
     """
     # Check bypass mode
-    bypass_result = _check_bypass("get_remote_input", {"title": title, "prompt": prompt})
+    bypass_result = _check_bypass(
+        "get_remote_input",
+        {
+            "title": title,
+            "prompt": prompt,
+            "file_path": os.path.basename(file_path) if file_path else None,
+        },
+    )
     if bypass_result is not None:
         return bypass_result
 
     try:
+        resolved_attachment_path, attachment_error = _resolve_remote_input_attachment(file_path)
+        if attachment_error is not None:
+            if ctx:
+                await ctx.error(attachment_error)
+            return {
+                "success": False,
+                "error": attachment_error,
+                "cancelled": False,
+                "platform": CURRENT_PLATFORM
+            }
+
         if ctx:
             tg_status = "active" if is_telegram_configured() else "not configured (tkinter only)"
             await ctx.info(
@@ -3594,14 +4034,25 @@ async def get_remote_input(
         transport_cancel = threading.Event()
         executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         allow_background_executor_shutdown = False
-        worker_future = executor.submit(
-            create_remote_input_dialog,
-            title,
-            prompt,
-            default_value,
-            name_or_role,
-            transport_cancel,
-        )
+        if resolved_attachment_path:
+            worker_future = executor.submit(
+                create_remote_input_dialog,
+                title,
+                prompt,
+                default_value,
+                name_or_role,
+                transport_cancel,
+                resolved_attachment_path,
+            )
+        else:
+            worker_future = executor.submit(
+                create_remote_input_dialog,
+                title,
+                prompt,
+                default_value,
+                name_or_role,
+                transport_cancel,
+            )
         result_future = asyncio.wrap_future(worker_future, loop=loop)
 
         try:

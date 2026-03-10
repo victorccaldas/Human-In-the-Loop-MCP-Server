@@ -38,6 +38,7 @@ except ImportError:  # pragma: no cover - validated by the caller at runtime
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _DEFAULT_CONFIG = os.path.join(_SCRIPT_DIR, "telegram_config.json")
+_DIALOG_CONFIG_FILE = os.path.join(_SCRIPT_DIR, "dialog_config.json")
 _HUB_HOST = "127.0.0.1"
 _HUB_VERSION = 1
 _DEFAULT_WAIT_TIMEOUT_SECONDS = 5.0
@@ -224,7 +225,60 @@ def get_telegram_admin_commands() -> list[dict[str, str]]:
             "command": "permitir_mensagens_automaticas",
             "description": "Allow automatic VS Code approval messages",
         },
+        {
+            "command": "tkinter_sound_on",
+            "description": "Enable tkinter beeps for new get_remote_input dialogs",
+        },
+        {
+            "command": "tkinter_sound_off",
+            "description": "Disable tkinter beeps for new get_remote_input dialogs",
+        },
     ]
+
+
+def _load_dialog_config() -> dict[str, Any]:
+    if not os.path.isfile(_DIALOG_CONFIG_FILE):
+        return {}
+    try:
+        with open(_DIALOG_CONFIG_FILE, "r", encoding="utf-8") as handle:
+            loaded = json.load(handle)
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_dialog_config(config_data: dict[str, Any]) -> None:
+    with open(_DIALOG_CONFIG_FILE, "w", encoding="utf-8") as handle:
+        json.dump(config_data, handle, indent=2)
+
+
+def set_remote_input_notifications_enabled(enabled: bool) -> dict[str, Any]:
+    data = _load_dialog_config()
+    data["remote_input_notifications_enabled"] = bool(enabled)
+    _save_dialog_config(data)
+    return {
+        "status": "success",
+        "enabled": bool(enabled),
+        "config_path": _DIALOG_CONFIG_FILE,
+    }
+
+
+def handle_remote_input_notification_telegram_command(text: str) -> Optional[str]:
+    token = _get_telegram_command_token(text)
+    if token not in {
+        "/tkinter_sound_on",
+        "/tkinter_sound_off",
+        "/tkinter_sound",
+    }:
+        return None
+    if token == "/tkinter_sound":
+        enabled = bool(_load_dialog_config().get("remote_input_notifications_enabled", True))
+        state = "ativadas" if enabled else "desativadas"
+        return f"ℹ️ Notificações de get_remote_input estão {state}."
+    enabled = token == "/tkinter_sound_on"
+    result = set_remote_input_notifications_enabled(enabled)
+    state = "ativadas" if result["enabled"] else "desativadas"
+    return f"🔔 Notificações de get_remote_input {state}."
 
 
 def _get_telegram_command_token(text: str) -> str:
@@ -1629,6 +1683,10 @@ class SharedTelegramHubService:
         text = (message.get("text") or "").strip()
         if text.startswith("/bypass"):
             self._handle_bypass_command(text.lower())
+            return
+        notification_reply = handle_remote_input_notification_telegram_command(text)
+        if notification_reply is not None:
+            self._send_text(notification_reply)
             return
         auto_message_reply = handle_vscode_auto_message_telegram_command(text)
         if auto_message_reply is not None:

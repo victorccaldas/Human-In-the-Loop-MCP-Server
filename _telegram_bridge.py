@@ -77,6 +77,7 @@ class TelegramBridge:
         self.chat_id: str = str(credentials.chat_id)
         self._update_offset: Optional[int] = None
         self._shared_hub_client: Optional[SharedTelegramHubClient] = None
+        self._prompt_message_formats: dict[int, str] = {}
 
         # Shared mode must never fall back to local getUpdates polling, because
         # the hub is the sole safe owner for a same-host bot/chat scope.
@@ -111,11 +112,128 @@ class TelegramBridge:
             truncated += "\n... (truncated)"
         return truncated
 
+    def _remember_prompt_message(self, message_id: int, *, content_type: str) -> int:
+        if not hasattr(self, "_prompt_message_formats"):
+            self._prompt_message_formats = {}
+        self._prompt_message_formats[int(message_id)] = content_type
+        return int(message_id)
+
+    def _send_attachment_followup(
+        self,
+        prompt_message_id: int,
+        attachment_path: str,
+    ) -> Optional[int]:
+        """Best-effort document reply used when same-message attachment send is unavailable."""
+        try:
+            with open(attachment_path, "rb") as attachment_handle:
+                response = requests.post(
+                    self._api("sendDocument"),
+                    data={
+                        "chat_id": self.chat_id,
+                        "caption": os.path.basename(attachment_path),
+                        "reply_to_message_id": int(prompt_message_id),
+                        "allow_sending_without_reply": True,
+                    },
+                    files={"document": attachment_handle},
+                    timeout=30,
+                )
+            if response.status_code == 200:
+                return int(response.json()["result"]["message_id"])
+            _write_diag_log(
+                "send_attachment_followup",
+                f"prompt_msg_id={prompt_message_id}: HTTP {response.status_code} - {response.text[:200]}",
+            )
+        except Exception as exc:
+            _write_diag_log(
+                "send_attachment_followup",
+                f"prompt_msg_id={prompt_message_id}: EXCEPTION - {exc}",
+            )
+        return None
+
+    def _send_prompt_document(
+        self,
+        title: str,
+        prompt: str,
+        *,
+        attachment_path: str,
+        webapp_url: Optional[str] = None,
+        name_or_role: str = "",
+    ) -> Optional[int]:
+        """Send the prompt as a document with caption when an attachment is present."""
+        truncated = self._truncate_prompt_text(prompt, max_prompt_len=700)
+        role_line = (
+            f"\U0001f916 _{self._escape_md(name_or_role)}_\n"
+            if name_or_role else ""
+        )
+        wait_line = (
+            "_Tap the button below to open the response dialog\\._"
+            if webapp_url else
+            "_Reply to this message to respond\\._"
+        )
+        caption = (
+            f"{role_line}"
+            f"\U0001f5a5\ufe0f *{self._escape_md(title)}*\n\n"
+            f"\U0001f4ce *{self._escape_md(os.path.basename(attachment_path))}*\n\n"
+            f"{self._escape_md(truncated)}\n\n"
+            f"\u23f3 _Waiting for response\\.\\.\\._\n"
+            f"{wait_line}"
+        )
+        reply_markup = None
+        if webapp_url:
+            reply_markup = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "\U0001f4f2  Open Response Dialog",
+                            "web_app": {"url": webapp_url},
+                        }
+                    ]
+                ]
+            }
+
+        for attempt in range(1, 4):
+            try:
+                with open(attachment_path, "rb") as attachment_handle:
+                    payload: dict[str, Any] = {
+                        "chat_id": self.chat_id,
+                        "caption": caption,
+                        "parse_mode": "MarkdownV2",
+                    }
+                    if reply_markup is not None:
+                        payload["reply_markup"] = json.dumps(reply_markup)
+                    response = requests.post(
+                        self._api("sendDocument"),
+                        data=payload,
+                        files={"document": attachment_handle},
+                        timeout=30,
+                    )
+                if response.status_code == 200:
+                    message_id = int(response.json()["result"]["message_id"])
+                    self.pin_message(message_id)
+                    return self._remember_prompt_message(message_id, content_type="document")
+                _write_diag_log(
+                    "send_prompt_document",
+                    f"Attempt {attempt}: HTTP {response.status_code} - {response.text[:300]}",
+                )
+            except Exception as exc:
+                _write_diag_log(
+                    "send_prompt_document",
+                    f"Attempt {attempt}: EXCEPTION - {exc}",
+                )
+            if attempt < 3:
+                time.sleep(1)
+        return None
+
     # ------------------------------------------------------------------
     # Sending
     # ------------------------------------------------------------------
 
-    def send_prompt(self, title: str, prompt: str) -> Optional[int]:
+    def send_prompt(
+        self,
+        title: str,
+        prompt: str,
+        attachment_path: Optional[str] = None,
+    ) -> Optional[int]:
         """Send the prompt to the personal chat as a single editable message.
 
         The message is sent **without** ``reply_markup`` so that it can be
@@ -127,6 +245,15 @@ class TelegramBridge:
 
         Returns the sent ``message_id``, or ``None`` on failure.
         """
+        if attachment_path:
+            document_message_id = self._send_prompt_document(
+                title,
+                prompt,
+                attachment_path=attachment_path,
+            )
+            if document_message_id is not None:
+                return document_message_id
+
         # Truncate prompt to Telegram's 4096 char limit (with room for header)
         truncated = self._truncate_prompt_text(prompt)
 
@@ -148,8 +275,11 @@ class TelegramBridge:
                     timeout=15,
                 )
                 if resp.status_code == 200:
-                    message_id = resp.json()["result"]["message_id"]
+                    message_id = int(resp.json()["result"]["message_id"])
                     self.pin_message(message_id)
+                    self._remember_prompt_message(message_id, content_type="text")
+                    if attachment_path:
+                        self._send_attachment_followup(message_id, attachment_path)
                     return message_id
                 _write_diag_log(
                     "send_prompt",
@@ -178,6 +308,7 @@ class TelegramBridge:
         prompt: str,
         webapp_url: str,
         name_or_role: str = "",
+        attachment_path: Optional[str] = None,
     ) -> Optional[int]:
         """Send the prompt with an InlineKeyboard button that opens the Mini App.
 
@@ -188,6 +319,17 @@ class TelegramBridge:
 
         Returns the sent ``message_id``, or ``None`` on failure.
         """
+        if attachment_path:
+            document_message_id = self._send_prompt_document(
+                title,
+                prompt,
+                attachment_path=attachment_path,
+                webapp_url=webapp_url,
+                name_or_role=name_or_role,
+            )
+            if document_message_id is not None:
+                return document_message_id
+
         truncated = self._truncate_prompt_text(prompt)
 
         role_line = (
@@ -223,8 +365,11 @@ class TelegramBridge:
                     timeout=15,
                 )
                 if resp.status_code == 200:
-                    message_id = resp.json()["result"]["message_id"]
+                    message_id = int(resp.json()["result"]["message_id"])
                     self.pin_message(message_id)
+                    self._remember_prompt_message(message_id, content_type="text")
+                    if attachment_path:
+                        self._send_attachment_followup(message_id, attachment_path)
                     return message_id
                 _write_diag_log(
                     "send_prompt_with_miniapp",
@@ -602,17 +747,23 @@ class TelegramBridge:
         def _log(msg):
             _write_diag_log("edit_message", msg)
 
+        if not hasattr(self, "_prompt_message_formats"):
+            self._prompt_message_formats = {}
+        content_type = self._prompt_message_formats.get(int(message_id), "text")
+        endpoint = "editMessageCaption" if content_type == "document" else "editMessageText"
+        content_key = "caption" if content_type == "document" else "text"
+
         for attempt in range(1, max_retries + 1):
             try:
                 payload: dict = {
                     "chat_id": self.chat_id,
                     "message_id": message_id,
-                    "text": new_text,
+                    content_key: new_text,
                 }
                 if parse_mode:
                     payload["parse_mode"] = parse_mode
                 resp = requests.post(
-                    self._api("editMessageText"),
+                    self._api(endpoint),
                     json=payload,
                     timeout=10,
                 )
@@ -657,6 +808,46 @@ class TelegramBridge:
             _log(f"Status send FAILED: HTTP {resp.status_code} - {resp.text}")
         except Exception as exc:
             _log(f"Status send EXCEPTION: {exc}")
+        return False
+
+    def update_miniapp_button(
+        self,
+        message_id: int,
+        new_webapp_url: str,
+    ) -> bool:
+        """Update the InlineKeyboard MiniApp button URL on an existing message.
+
+        Uses ``editMessageReplyMarkup`` to replace the ``web_app`` URL without
+        touching the message text.  Returns True on success.
+        """
+        def _log(msg):
+            _write_diag_log("update_miniapp_button", msg)
+
+        try:
+            resp = requests.post(
+                self._api("editMessageReplyMarkup"),
+                json={
+                    "chat_id": self.chat_id,
+                    "message_id": message_id,
+                    "reply_markup": {
+                        "inline_keyboard": [
+                            [
+                                {
+                                    "text": "\U0001f4f2  Open Response Dialog",
+                                    "web_app": {"url": new_webapp_url},
+                                }
+                            ]
+                        ]
+                    },
+                },
+                timeout=10,
+            )
+            if resp.status_code == 200:
+                _log(f"Button URL updated on msg_id={message_id}")
+                return True
+            _log(f"Button update FAILED: HTTP {resp.status_code} - {resp.text[:200]}")
+        except Exception as exc:
+            _log(f"Button update EXCEPTION: {exc}")
         return False
 
     def send_text(self, text: str) -> Optional[int]:

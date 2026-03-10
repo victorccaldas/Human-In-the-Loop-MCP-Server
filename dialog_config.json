@@ -1,3 +1,4 @@
 {
-  "dialog_height": 760
+  "dialog_height": 760,
+  "remote_input_notifications_enabled": true
 }
