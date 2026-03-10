@@ -23,6 +23,7 @@ Usage::
 import re
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import os
@@ -75,6 +76,7 @@ class CloudflareTunnel:
         self._exit_code: Optional[int] = None
         self._on_tunnel_died: Optional[Callable[[int, Optional[int]], None]] = None
         self._local_port: Optional[int] = None
+        self._log_callback: Optional[Callable[[str], None]] = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -149,9 +151,9 @@ class CloudflareTunnel:
             )
 
         self._local_port = local_port
-        print(
+        self._log(
             f"[CloudflareTunnel] Tunnel established: {self._url} "
-            f"→ localhost:{local_port} (PID {self._proc.pid})"
+            f"-> localhost:{local_port} (PID {self._proc.pid})"
         )
 
         # Start a background monitor that detects cloudflared crashing after
@@ -186,12 +188,12 @@ class CloudflareTunnel:
         """
         if self._local_port is None:
             raise TunnelNotAvailableError(
-                "Cannot reconnect — tunnel was never started (local_port is unknown)."
+                "Cannot reconnect -- tunnel was never started (local_port is unknown)."
             )
 
         local_port = self._local_port
         old_url = self._url
-        print(f"[CloudflareTunnel] Reconnecting tunnel (old URL: {old_url})…")
+        self._log(f"[CloudflareTunnel] Reconnecting tunnel (old URL: {old_url})...")
 
         # ------ clean up the old process ------
         # Temporarily mark as stopped so the monitor thread doesn't fire
@@ -259,9 +261,9 @@ class CloudflareTunnel:
             )
 
         self._local_port = local_port
-        print(
+        self._log(
             f"[CloudflareTunnel] Tunnel reconnected: {self._url} "
-            f"→ localhost:{local_port} (PID {self._proc.pid})"
+            f"-> localhost:{local_port} (PID {self._proc.pid})"
         )
 
         self._monitor_thread = threading.Thread(
@@ -304,6 +306,32 @@ class CloudflareTunnel:
         """
         self._on_tunnel_died = callback
 
+    def set_log_callback(self, callback: Optional[Callable[[str], None]]) -> None:
+        """Register a callback for log messages.
+
+        When set, all diagnostic messages (including forwarded cloudflared
+        output) are routed through this callback instead of being printed.
+        This allows callers to write them to a log file.
+        """
+        self._log_callback = callback
+
+    def _log(self, msg: str) -> None:
+        """Route a diagnostic message to the log callback (if set)."""
+        cb = self._log_callback
+        if cb is not None:
+            try:
+                cb(msg)
+            except Exception:
+                pass
+
+    def _log_critical(self, msg: str) -> None:
+        """Log a critical message to both the callback and stderr."""
+        self._log(msg)
+        try:
+            print(msg, file=sys.stderr)
+        except Exception:
+            pass
+
     def stop(self) -> None:
         """Terminate the cloudflared subprocess and clean up."""
         if self._stopped:
@@ -336,14 +364,14 @@ class CloudflareTunnel:
                     break
                 line_stripped = line.rstrip()
                 if line_stripped:
-                    print(f"[CloudflareTunnel] {line_stripped}")
+                    self._log(f"[CloudflareTunnel] {line_stripped}")
                 match = _URL_PATTERN.search(line)
                 if match and self._url is None:
                     self._url = match.group(0)
                     self._ready_event.set()
         except (OSError, ValueError):
             if not self._stopped:
-                print("[CloudflareTunnel] Output stream closed unexpectedly.")
+                self._log("[CloudflareTunnel] Output stream closed unexpectedly.")
         finally:
             self._ready_event.set()  # unblock any waiting caller even on error
 
@@ -363,7 +391,7 @@ class CloudflareTunnel:
         self._exit_code = exit_code
         self._process_died_event.set()
         pid = self._proc.pid if self._proc else 0
-        print(
+        self._log_critical(
             f"[CloudflareTunnel] cloudflared process (PID {pid}) exited "
             f"unexpectedly with code {exit_code}."
         )
@@ -372,14 +400,14 @@ class CloudflareTunnel:
             try:
                 cb(pid, exit_code)
             except Exception as exc:
-                print(f"[CloudflareTunnel] on_tunnel_died callback error: {exc}")
+                self._log(f"[CloudflareTunnel] on_tunnel_died callback error: {exc}")
 
     def _health_check_loop(self) -> None:
         """Periodically verify that the tunnel URL is reachable."""
         try:
             import requests as _req
         except ImportError:
-            print("[CloudflareTunnel] 'requests' not available — tunnel health checks disabled.")
+            self._log("[CloudflareTunnel] 'requests' not available -- tunnel health checks disabled.")
             return
 
         # Wait a short period after startup before beginning health checks.
@@ -405,29 +433,29 @@ class CloudflareTunnel:
             try:
                 resp = _req.get(url, timeout=10, allow_redirects=False)
                 if resp.status_code in (502, 504):
-                    print(
+                    self._log(
                         f"[CloudflareTunnel] Health check WARN: "
                         f"GET {url} returned HTTP {resp.status_code}."
                     )
                 elif resp.status_code == 404 and "Not Found" in resp.text and len(resp.text) < 50:
                     # Cloudflare's plain "Not Found" for dead quick tunnels.
-                    print(
+                    self._log_critical(
                         f"[CloudflareTunnel] Health check FAIL: "
-                        f"GET {url} returned Cloudflare 'Not Found' — "
+                        f"GET {url} returned Cloudflare 'Not Found' -- "
                         f"tunnel may be disconnected."
                     )
             except _req.ConnectionError:
-                print(
+                self._log(
                     f"[CloudflareTunnel] Health check FAIL: "
                     f"Connection error reaching {url}."
                 )
             except _req.Timeout:
-                print(
+                self._log(
                     f"[CloudflareTunnel] Health check WARN: "
                     f"GET {url} timed out (10 s)."
                 )
             except Exception as exc:
-                print(
+                self._log(
                     f"[CloudflareTunnel] Health check error: "
                     f"{type(exc).__name__}: {exc}"
                 )
@@ -451,4 +479,4 @@ class CloudflareTunnel:
             # ESRCH / errno 3 = "No such process" — process already exited; ignore.
             import errno
             if exc.errno not in (errno.ESRCH, None):
-                print(f"[CloudflareTunnel] Non-fatal error terminating cloudflared process: {exc}")
+                self._log(f"[CloudflareTunnel] Non-fatal error terminating cloudflared process: {exc}")

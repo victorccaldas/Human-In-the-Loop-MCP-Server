@@ -369,7 +369,8 @@ def _play_remote_input_notification_beep() -> None:
         if IS_WINDOWS:
             import winsound
 
-            winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            # Short, subtle beep (800 Hz for 150 ms)
+            winsound.Beep(800, 150)
         else:
             print("\a", end="", flush=True)
     except Exception as exc:
@@ -987,8 +988,8 @@ def _configure_markdown_text_tags(text_widget, theme_colors: Dict[str, str]) -> 
     text_widget.tag_configure("md_list_item", lmargin1=14, lmargin2=30)
     text_widget.tag_configure("md_link", foreground=accent, underline=True)
     text_widget.tag_configure("md_link_url", foreground=muted)
-    text_widget.tag_configure("md_table_header", font=(base_family, base_size, "bold"), background=code_bg)
-    text_widget.tag_configure("md_table_cell", lmargin1=8, lmargin2=8)
+    text_widget.tag_configure("md_table_header", font=(code_font[0], code_font[1], "bold"), background=code_bg)
+    text_widget.tag_configure("md_table_cell", font=code_font, lmargin1=8, lmargin2=8)
     text_widget.tag_configure("md_table_row", spacing1=2, spacing3=2)
 
 
@@ -1577,13 +1578,10 @@ class ModernInputDialog:
         # Apply modern window styling
         configure_modern_window(self.dialog)
         
-        # Set size based on platform (increased height by 40px)
-        if IS_WINDOWS:
-            self.dialog.geometry("420x320")
-        else:
-            self.dialog.geometry("400x300")
-        
-        self.center_window()
+        # Set size + position: horizontally centered, pinned to top
+        _w, _h = (420, 320) if IS_WINDOWS else (400, 300)
+        _sx = (self.dialog.winfo_screenwidth() // 2) - (_w // 2)
+        self.dialog.geometry(f"{_w}x{_h}+{_sx}+0")
         
         # Create the main frame
         main_frame = tk.Frame(self.dialog, bg=self.theme_colors["bg_primary"])
@@ -1701,19 +1699,13 @@ class ModernInputDialog:
         self.dialog.wait_window()
     
     def center_window(self):
-        """Center the dialog window on screen"""
+        """Position the dialog window: horizontally centered, top of screen"""
         self.dialog.update_idletasks()
         width = self.dialog.winfo_width()
         height = self.dialog.winfo_height()
         screen_width = self.dialog.winfo_screenwidth()
-        screen_height = self.dialog.winfo_screenheight()
         x = (screen_width // 2) - (width // 2)
-        y = (screen_height // 2) - (height // 2)
-        
-        if IS_MACOS:
-            y = max(50, y - 50)
-        elif IS_WINDOWS:
-            y = max(30, y - 30)
+        y = 0
             
         self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
@@ -1753,13 +1745,10 @@ class ModernConfirmationDialog:
         # Apply modern window styling
         configure_modern_window(self.dialog)
         
-        # Set size based on content
-        if IS_WINDOWS:
-            self.dialog.geometry("440x220")
-        else:
-            self.dialog.geometry("420x200")
-        
-        self.center_window()
+        # Set size + position: horizontally centered, pinned to top
+        _w, _h = (440, 220) if IS_WINDOWS else (420, 200)
+        _sx = (self.dialog.winfo_screenwidth() // 2) - (_w // 2)
+        self.dialog.geometry(f"{_w}x{_h}+{_sx}+0")
         
         # Create the main frame
         main_frame = tk.Frame(self.dialog, bg=self.theme_colors["bg_primary"])
@@ -1816,19 +1805,13 @@ class ModernConfirmationDialog:
         self.dialog.wait_window()
     
     def center_window(self):
-        """Center the dialog window on screen"""
+        """Position the dialog window: horizontally centered, top of screen"""
         self.dialog.update_idletasks()
         width = self.dialog.winfo_width()
         height = self.dialog.winfo_height()
         screen_width = self.dialog.winfo_screenwidth()
-        screen_height = self.dialog.winfo_screenheight()
         x = (screen_width // 2) - (width // 2)
-        y = (screen_height // 2) - (height // 2)
-        
-        if IS_MACOS:
-            y = max(50, y - 50)
-        elif IS_WINDOWS:
-            y = max(30, y - 30)
+        y = 0
             
         self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
@@ -1856,13 +1839,10 @@ class ModernInfoDialog:
         # Apply modern window styling
         configure_modern_window(self.dialog)
         
-        # Set size based on content
-        if IS_WINDOWS:
-            self.dialog.geometry("420x200")
-        else:
-            self.dialog.geometry("400x180")
-        
-        self.center_window()
+        # Set size + position: horizontally centered, pinned to top
+        _w, _h = (420, 200) if IS_WINDOWS else (400, 180)
+        _sx = (self.dialog.winfo_screenwidth() // 2) - (_w // 2)
+        self.dialog.geometry(f"{_w}x{_h}+{_sx}+0")
         
         # Create the main frame
         main_frame = tk.Frame(self.dialog, bg=self.theme_colors["bg_primary"])
@@ -1914,19 +1894,13 @@ class ModernInfoDialog:
         self.dialog.wait_window()
     
     def center_window(self):
-        """Center the dialog window on screen"""
+        """Position the dialog window: horizontally centered, top of screen"""
         self.dialog.update_idletasks()
         width = self.dialog.winfo_width()
         height = self.dialog.winfo_height()
         screen_width = self.dialog.winfo_screenwidth()
-        screen_height = self.dialog.winfo_screenheight()
         x = (screen_width // 2) - (width // 2)
-        y = (screen_height // 2) - (height // 2)
-        
-        if IS_MACOS:
-            y = max(50, y - 50)
-        elif IS_WINDOWS:
-            y = max(30, y - 30)
+        y = 0
             
         self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
@@ -2057,15 +2031,10 @@ class ChoiceDialog:
         # Apply modern window styling
         configure_modern_window(self.dialog)
         
-        # Set size based on platform
-        if IS_MACOS:
-            self.dialog.geometry("480x400")
-        elif IS_WINDOWS:
-            self.dialog.geometry("500x420")
-        else:
-            self.dialog.geometry("450x350")
-        
-        self.center_window()
+        # Set size + position: horizontally centered, pinned to top
+        _w, _h = (480, 400) if IS_MACOS else ((500, 420) if IS_WINDOWS else (450, 350))
+        _sx = (self.dialog.winfo_screenwidth() // 2) - (_w // 2)
+        self.dialog.geometry(f"{_w}x{_h}+{_sx}+0")
         
         # Create the main frame with modern styling
         main_frame = tk.Frame(self.dialog, bg=self.theme_colors["bg_primary"])
@@ -2185,24 +2154,14 @@ class ChoiceDialog:
         # allowing multiple dialogs to be open simultaneously.
     
     def center_window(self):
-        """Center the dialog window on screen"""
+        """Position the dialog window: horizontally centered, top of screen"""
         self.dialog.update_idletasks()
         width = self.dialog.winfo_width()
         height = self.dialog.winfo_height()
         
-        # Get screen dimensions
         screen_width = self.dialog.winfo_screenwidth()
-        screen_height = self.dialog.winfo_screenheight()
-        
-        # Calculate center position
         x = (screen_width // 2) - (width // 2)
-        y = (screen_height // 2) - (height // 2)
-        
-        # Platform-specific adjustments
-        if IS_MACOS:
-            y = max(50, y - 50)
-        elif IS_WINDOWS:
-            y = max(30, y - 30)
+        y = 0
         
         self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
@@ -2258,8 +2217,10 @@ class MultilineInputDialog:
         # Width is platform-specific; height uses the persisted value
         _dlg_width = 580 if IS_MACOS else (600 if IS_WINDOWS else 550)
         _dlg_height = _get_persisted_dialog_height()
-        self.dialog.geometry(f"{_dlg_width}x{_dlg_height}")
-        self.center_window()
+        # Set size + position in one call: horizontally centered, top of screen
+        _screen_w = self.dialog.winfo_screenwidth()
+        _init_x = (_screen_w // 2) - (_dlg_width // 2)
+        self.dialog.geometry(f"{_dlg_width}x{_dlg_height}+{_init_x}+0")
         
         # Create the main frame with modern styling
         main_frame = tk.Frame(self.dialog, bg=self.theme_colors["bg_primary"])
@@ -2325,15 +2286,15 @@ class MultilineInputDialog:
         self.arrow_label = arrow_label
 
         if attachment_path:
-            attachment_frame = tk.Frame(prompt_container, bg=self.theme_colors["bg_primary"])
-            attachment_frame.pack(fill="x", pady=(8, 0))
+            attachment_frame = tk.Frame(prompt_container, bg="#1A237E")
+            attachment_frame.pack(fill="x", pady=(8, 0), ipady=4, ipadx=6)
             self.attachment_frame = attachment_frame
 
             attachment_prefix = tk.Label(
                 attachment_frame,
-                text="Attached file:",
-                bg=self.theme_colors["bg_primary"],
-                fg=self.theme_colors["fg_secondary"],
+                text="\U0001f4ce Attached file:",
+                bg="#1A237E",
+                fg="#FFFFFF",
                 font=get_system_font(),
                 anchor="w",
             )
@@ -2342,9 +2303,9 @@ class MultilineInputDialog:
             attachment_link = tk.Label(
                 attachment_frame,
                 text=os.path.basename(attachment_path),
-                bg=self.theme_colors["bg_primary"],
-                fg=self.theme_colors["accent_color"],
-                font=get_system_font(),
+                bg="#1A237E",
+                fg="#ADD8E6",
+                font=(get_system_font()[0], get_system_font()[1], "bold underline"),
                 anchor="w",
                 cursor="hand2" if IS_WINDOWS else "pointinghand",
             )
@@ -2362,10 +2323,29 @@ class MultilineInputDialog:
         text_container.rowconfigure(0, weight=1)
         self.text_container = text_container
         
-        # Modern text widget
-        self.text_widget = tk.Text(text_container, height=12)
+        # Modern text widget with undo support
+        self.text_widget = tk.Text(text_container, height=12, undo=True, maxundo=-1)
         apply_modern_style(self.text_widget, "text", self.theme_colors)
         self.text_widget.grid(row=0, column=0, sticky="nsew", padx=(0, 2))
+
+        def _text_undo(event):
+            try:
+                self.text_widget.edit_undo()
+            except tk.TclError:
+                pass
+            return "break"
+
+        def _text_redo(event):
+            try:
+                self.text_widget.edit_redo()
+            except tk.TclError:
+                pass
+            return "break"
+
+        self.text_widget.bind("<Control-z>", _text_undo)
+        self.text_widget.bind("<Control-Z>", _text_undo)
+        self.text_widget.bind("<Control-Shift-z>", _text_redo)
+        self.text_widget.bind("<Control-Shift-Z>", _text_redo)
         
         # Modern scrollbar for text widget
         text_scrollbar = tk.Scrollbar(text_container, orient="vertical", command=self.text_widget.yview)
@@ -2560,15 +2540,9 @@ class MultilineInputDialog:
         screen_width = self.dialog.winfo_screenwidth()
         screen_height = self.dialog.winfo_screenheight()
         
-        # Calculate center position
+        # Calculate position: horizontally centered, pinned to top
         x = (screen_width // 2) - (width // 2)
-        y = (screen_height // 2) - (height // 2)
-        
-        # Platform-specific adjustments
-        if IS_MACOS:
-            y = max(50, y - 50)
-        elif IS_WINDOWS:
-            y = max(30, y - 30)
+        y = 0
         
         self.dialog.geometry(f"{width}x{height}+{x}+{y}")
     
@@ -2672,10 +2646,13 @@ class MultilineInputDialog:
         try:
             new_height = int(self._height_var.get())
             new_height = max(300, min(1500, new_height))
-            # Get current width and apply the new height
+            # Get current width and preserve x position, keep y=0
             current_geom = self.dialog.geometry()
-            width_part = current_geom.split('x')[0]
-            self.dialog.geometry(f"{width_part}x{new_height}")
+            # geometry() returns "WxH+X+Y"
+            size_part, rest = current_geom.split('+', 1)
+            x_part = rest.split('+')[0]
+            width_part = size_part.split('x')[0]
+            self.dialog.geometry(f"{width_part}x{new_height}+{x_part}+0")
             _save_persisted_dialog_height(new_height)
         except (ValueError, tk.TclError):
             pass  # Ignore invalid spinbox values
@@ -2983,8 +2960,11 @@ class MiniAppSession:
             f"[MiniApp] cloudflared (PID {pid}) died (exit_code={exit_code}). "
             f"Auto-reconnect will attempt to restore the tunnel."
         )
-        print(msg)
         append_log_line(get_remote_input_diag_log_path(), msg)
+        try:
+            print(msg, file=sys.stderr)
+        except Exception:
+            pass
 
     def _reconnect_loop(self) -> None:
         """Watch for tunnel death and attempt reconnection with cooldown."""
@@ -3004,9 +2984,8 @@ class MiniAppSession:
                 cooldown = self._RECONNECT_COOLDOWNS[min(attempt - 1, len(self._RECONNECT_COOLDOWNS) - 1)]
                 msg = (
                     f"[MiniApp] Tunnel reconnect attempt {attempt}/{self._MAX_RECONNECT_ATTEMPTS} "
-                    f"in {cooldown}s…"
+                    f"in {cooldown}s..."
                 )
-                print(msg)
                 append_log_line(get_remote_input_diag_log_path(), msg)
 
                 if self._stop_event.wait(timeout=cooldown):
@@ -3016,7 +2995,6 @@ class MiniAppSession:
                     new_url = self.tunnel.reconnect(timeout=20.0)
                 except Exception as exc:
                     msg = f"[MiniApp] Reconnect attempt {attempt} failed: {exc}"
-                    print(msg)
                     append_log_line(get_remote_input_diag_log_path(), msg)
                     continue
 
@@ -3030,7 +3008,6 @@ class MiniAppSession:
                     f"[MiniApp] Tunnel reconnected successfully "
                     f"(attempt {attempt}, new URL: {new_webapp_url})"
                 )
-                print(msg)
                 append_log_line(get_remote_input_diag_log_path(), msg)
 
                 # Notify the caller (e.g. to update Telegram button).
@@ -3039,7 +3016,7 @@ class MiniAppSession:
                     try:
                         cb(new_webapp_url)
                     except Exception as exc:
-                        print(f"[MiniApp] on_url_changed callback error: {exc}")
+                        append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] on_url_changed callback error: {exc}")
 
                 # Wait a few seconds for CDN propagation.
                 time.sleep(3)
@@ -3050,8 +3027,11 @@ class MiniAppSession:
                     f"[MiniApp] All {self._MAX_RECONNECT_ATTEMPTS} reconnect "
                     f"attempts failed. MiniApp URL is permanently unreachable."
                 )
-                print(msg)
                 append_log_line(get_remote_input_diag_log_path(), msg)
+                try:
+                    print(msg, file=sys.stderr)
+                except Exception:
+                    pass
                 return  # Stop watching.
 
     def stop(self) -> None:
@@ -3109,29 +3089,40 @@ def _build_miniapp_session(
 
         # Start Cloudflare tunnel (blocks up to 20 s)
         tunnel = CloudflareTunnel()
+        tunnel.set_log_callback(
+            lambda msg: append_log_line(get_remote_input_diag_log_path(), msg)
+        )
 
         try:
             public_url = tunnel.start(local_port=port, timeout=20.0)
         except TunnelNotAvailableError as exc:
-            print(f"[MiniApp] Tunnel unavailable: {exc}")
+            append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Tunnel unavailable: {exc}")
+            try:
+                print(f"[MiniApp] Tunnel unavailable: {exc}", file=sys.stderr)
+            except Exception:
+                pass
             http_server.stop()
             return None
 
         # Update the server's tunnel URL now that we know the real address
         http_server._tunnel_base_url = public_url.rstrip("/")
 
-        # Small propagation wait: Cloudflare CDN needs ~2–3 s to register the
+        # Small propagation wait: Cloudflare CDN needs ~2-3 s to register the
         # ephemeral tunnel in its DNS before external clients can resolve it.
         # The Telegram message is sent after this pause, so by the time the
         # user taps the inline button the URL is fully reachable.
         time.sleep(3)
 
         webapp_url = f"{public_url.rstrip('/')}/?t={token}"
-        print(f"[MiniApp] Mini App ready at {webapp_url}")
+        append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Mini App ready at {webapp_url}")
         return MiniAppSession(http_server, tunnel, webapp_url, token)
 
     except Exception as exc:
-        print(f"[MiniApp] Failed to build Mini App session: {exc}")
+        append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Failed to build Mini App session: {exc}")
+        try:
+            print(f"[MiniApp] Failed to build Mini App session: {exc}", file=sys.stderr)
+        except Exception:
+            pass
         return None
 
 
@@ -3331,9 +3322,9 @@ def create_remote_input_dialog(
                         def _headless_url_changed(new_url: str) -> None:
                             try:
                                 _headless_tg.update_miniapp_button(_headless_msg_id, new_url)
-                                print(f"[MiniApp][Headless] Telegram button updated to {new_url}")
+                                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp][Headless] Telegram button updated to {new_url}")
                             except Exception as exc:
-                                print(f"[MiniApp][Headless] Failed to update Telegram button: {exc}")
+                                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp][Headless] Failed to update Telegram button: {exc}")
                         _miniapp_session.on_url_changed = _headless_url_changed
                     else:
                         # send_prompt_with_miniapp failed — tear down MiniApp, fall back to plain
@@ -3507,9 +3498,9 @@ def create_remote_input_dialog(
                         def _main_url_changed(new_url: str) -> None:
                             try:
                                 _main_tg.update_miniapp_button(_main_msg_id, new_url)
-                                print(f"[MiniApp] Telegram button updated to {new_url}")
+                                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Telegram button updated to {new_url}")
                             except Exception as exc:
-                                print(f"[MiniApp] Failed to update Telegram button: {exc}")
+                                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Failed to update Telegram button: {exc}")
                         miniapp_session.on_url_changed = _main_url_changed
                     else:
                         print("[RemoteInput] send_prompt_with_miniapp failed — falling back to plain prompt")
@@ -3627,23 +3618,6 @@ def create_remote_input_dialog(
 
                 top_banner_row = 0
 
-                if name_or_role:
-                    try:
-                        role_label = tk.Label(
-                            dlg.main_frame,
-                            text=f"\U0001f916  {name_or_role}",
-                            bg=dlg.theme_colors["bg_secondary"],
-                            fg=dlg.theme_colors["fg_secondary"],
-                            font=get_system_font(),
-                            anchor="w",
-                            padx=8,
-                            pady=2,
-                        )
-                        role_label.grid(row=top_banner_row, column=0, sticky="ew", pady=(0, 4))
-                        top_banner_row += 1
-                    except Exception:
-                        pass
-
                 # Inject a Telegram status indicator near the top of the dialog
                 if telegram_active:
                     try:
@@ -3663,6 +3637,23 @@ def create_remote_input_dialog(
                         )
                         tg_label.grid(row=top_banner_row, column=0, sticky="ew", pady=(0, 4))
                         dlg._tg_label = tg_label
+                        top_banner_row += 1
+                    except Exception:
+                        pass
+
+                if name_or_role:
+                    try:
+                        role_label = tk.Label(
+                            dlg.main_frame,
+                            text=f"\U0001f916  {name_or_role}",
+                            bg=dlg.theme_colors["bg_secondary"],
+                            fg=dlg.theme_colors["fg_secondary"],
+                            font=get_system_font(),
+                            anchor="w",
+                            padx=8,
+                            pady=2,
+                        )
+                        role_label.grid(row=top_banner_row, column=0, sticky="ew", pady=(0, 4))
                         top_banner_row += 1
                     except Exception:
                         pass
