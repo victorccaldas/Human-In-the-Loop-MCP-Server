@@ -32,6 +32,10 @@ The `get_remote_input` MCP tool (exposed as `mcp_human-in-the-_get_remote_input`
 
 `get_remote_input` supports dual-channel answering: the user can respond from either the local GUI dialog or from Telegram on their phone. Both channels are synchronized — answering on one automatically closes the other. If Telegram is not configured, the tool falls back to the local GUI dialog only.
 
+### Useful information
+- Updates to the server require the user to restart the server in order to see the changes in effect
+- Updates to the shared hub require the user executing terminate_hub.bat and restarting the server to see the changes in effect
+
 ### Summary
 
 > The `get_remote_input` tool is the bridge between this AI agent and the human. Treat it as the **only** valid communication channel for all interactions with the user while it's accessible.
