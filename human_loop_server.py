@@ -535,10 +535,53 @@ _command_poller_stop: Optional[threading.Event] = None
 _BYPASS_AUTO_APPROVAL_MESSAGE = (
     "[AUTO-APPROVED] The user has enabled the bypass-human-input flag.\n"
     "This interaction has been automatically approved — no human review was performed.\n"
-    "Action: Proceed with the best judgment. Continue requesting human approval "
-    "on subsequent steps as the user may disable the bypass at any time.\n"
+    "\n"
+    "=== MANDATORY INSTRUCTIONS (bypass mode) ===\n"
+    "\n"
+    "FIRST THING: Re-read copilot-instructions.md before doing anything else.\n"
+    "\n"
+    "While the bypass is on, you are NOT authorized to conclude the session. "
+    "You must continue delegating subagents to look for opportunities, plan and "
+    "introduce new features, and fix bugs.\n"
+    "\n"
+    "SAFETY: Each feature/bugfix must be individually and independently reversible "
+    "via git commits.\n"
+    "  - Commit messages must always start with '[auto approved]'.\n"
+    "  - If a feature or bugfix is built upon another [auto approved] commit, use: "
+    "'[auto approved][built upon <commit_id>][feature]' or "
+    "'[auto approved][built upon <commit_id>][fix]'.\n"
+    "  - Each commit description must have a complete, detailed explanation of the "
+    "feature or fix.\n"
+    "\n"
+    "WORKFLOW: Always delegate subagents to perform the full cycle:\n"
+    "  explore → detect opportunities → choose next task → build plan → "
+    "implement changes → validate through review → commit → continue.\n"
+    "  - Subagents must never modify code outside the implement phase.\n"
+    "  - Never commit until validation passes.\n"
+    "\n"
+    "TASK SOURCES: Only autonomously explore for new opportunities when you are "
+    "out of tasks from these sources: to-do files, issues tracker, notion.\n"
+    "\n"
+    "TRACKING FILES (create/update as you work):\n"
+    "  - human-validation.todo.txt: Full explanation and testing instructions for "
+    "each implemented feature. Keep up to date.\n"
+    "  - changelog.json (do NOT commit this file): Must contain the keys: "
+    "attempted_tasks, failed_tasks, recent_changes, recent_refactors.\n"
+    "\n"
     "STATUS=APPROVED"
 )
+
+_BYPASS_PERIODIC_REFLECTION = (
+    "\n\n=== PERIODIC REFLECTION (answer these before continuing) ===\n"
+    "1. What are the biggest weaknesses in the project?\n"
+    "2. What functionality is missing?\n"
+    "3. What parts are fragile?\n"
+    "Incorporate your answers into your next task selection.\n"
+)
+
+# How many consecutive bypassed calls before injecting the reflection prompt
+_BYPASS_REFLECTION_INTERVAL = 15
+_bypass_call_counter = 0
 
 
 def _get_bypass_lock_path() -> str:
@@ -642,12 +685,24 @@ def _check_bypass(tool_name: str, args_summary: dict) -> Optional[Dict[str, Any]
 
     Returns None if bypass is not active (tool should proceed normally).
     Returns a tool-specific auto-approval dict if bypass is active.
+    Every _BYPASS_REFLECTION_INTERVAL calls, appends reflection prompts.
     """
+    global _bypass_call_counter
+
     if not _is_bypass_active():
+        _bypass_call_counter = 0
         return None
 
     # Log the bypassed interaction
     _log_bypass(tool_name, args_summary)
+
+    # Increment counter and check if reflection is due
+    _bypass_call_counter += 1
+    reflection_suffix = ""
+    if _bypass_call_counter % _BYPASS_REFLECTION_INTERVAL == 0:
+        reflection_suffix = _BYPASS_PERIODIC_REFLECTION
+
+    message = _BYPASS_AUTO_APPROVAL_MESSAGE + reflection_suffix
 
     # Build tool-specific response
     platform_name = "windows" if IS_WINDOWS else ("macos" if IS_MACOS else "linux")
@@ -655,9 +710,9 @@ def _check_bypass(tool_name: str, args_summary: dict) -> Optional[Dict[str, Any]
     if tool_name in ("get_user_input", "get_multiline_input", "get_remote_input"):
         return {
             "success": True,
-            "user_input": _BYPASS_AUTO_APPROVAL_MESSAGE,
-            "character_count": len(_BYPASS_AUTO_APPROVAL_MESSAGE),
-            "line_count": _BYPASS_AUTO_APPROVAL_MESSAGE.count("\n") + 1,
+            "user_input": message,
+            "character_count": len(message),
+            "line_count": message.count("\n") + 1,
             "cancelled": False,
             "platform": platform_name,
             "bypassed": True,
@@ -665,7 +720,7 @@ def _check_bypass(tool_name: str, args_summary: dict) -> Optional[Dict[str, Any]
     elif tool_name == "get_user_choice":
         return {
             "success": True,
-            "selected_choice": _BYPASS_AUTO_APPROVAL_MESSAGE,
+            "selected_choice": message,
             "cancelled": False,
             "platform": platform_name,
             "bypassed": True,
@@ -3769,6 +3824,14 @@ def create_remote_input_dialog(
                 # Attempt Mini App session (Cloudflare tunnel + HTTP server)
                 all_prompts = _get_multiline_input_custom_prompts()
                 miniapp_session = _build_miniapp_session(title, prompt, all_prompts, name_or_role)
+
+                # If the user answered in tkinter while the tunnel was
+                # starting, skip sending the Telegram message entirely.
+                if master_done.is_set():
+                    if miniapp_session:
+                        miniapp_session.stop()
+                        miniapp_session = None
+                    return
 
                 if miniapp_session:
                     # Tunnel is up — update banner eagerly so the user sees
