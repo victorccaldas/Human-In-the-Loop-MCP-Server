@@ -426,7 +426,49 @@ class TelegramBridge:
 
     def pin_message(self, message_id: int) -> bool:
         """Pin a prompt message without breaking the main Telegram flow."""
-        return self._set_message_pin_state(message_id, pinned=True)
+        ok = self._set_message_pin_state(message_id, pinned=True)
+        if ok:
+            self._flush_pin_service_message()
+        return ok
+
+    def _flush_pin_service_message(self) -> None:
+        """Immediately poll for and delete the pin service notification.
+
+        Telegram creates a service message (``pinned_message``) in the chat
+        when a message is pinned.  Deleting it quickly makes the notification
+        practically invisible to the user.
+
+        In shared-hub mode the hub owns ``getUpdates``, so we skip this.
+        """
+        if self._shared_hub_client is not None:
+            return
+        try:
+            params: dict = {
+                "timeout": 1,
+                "allowed_updates": ["message"],
+            }
+            if self._update_offset is not None:
+                params["offset"] = self._update_offset
+            resp = requests.get(
+                self._api("getUpdates"),
+                params=params,
+                timeout=5,
+            )
+            if resp.status_code != 200:
+                return
+            for update in resp.json().get("result", []):
+                self._update_offset = update["update_id"] + 1
+                msg = update.get("message")
+                if not msg:
+                    continue
+                if str(msg.get("chat", {}).get("id")) != self.chat_id:
+                    continue
+                if msg.get("pinned_message"):
+                    service_msg_id = msg.get("message_id")
+                    if isinstance(service_msg_id, int):
+                        self.delete_message(service_msg_id)
+        except Exception:
+            pass
 
     def unpin_message(self, message_id: int) -> bool:
         """Unpin a prompt message without breaking the main Telegram flow."""

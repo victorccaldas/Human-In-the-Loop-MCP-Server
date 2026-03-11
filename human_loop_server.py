@@ -2207,6 +2207,7 @@ class MultilineInputDialog:
         
         # Create the dialog window
         self.dialog = tk.Toplevel(parent)
+        self.dialog.withdraw()  # Hide until fully set up to prevent flash/misposition
         self.dialog.title(title)
         # grab_set() intentionally omitted -- it prevents minimizing on Windows.
         self.dialog.resizable(True, True)
@@ -3018,8 +3019,29 @@ class MiniAppSession:
                     except Exception as exc:
                         append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] on_url_changed callback error: {exc}")
 
-                # Wait a few seconds for CDN propagation.
-                time.sleep(3)
+                # Smart propagation wait for reconnected tunnel.
+                _rc_start = time.monotonic()
+                try:
+                    import requests as _req_rc
+                    _rc_ready = False
+                    while (time.monotonic() - _rc_start) < 6.0:
+                        try:
+                            _rc_resp = _req_rc.get(new_webapp_url, timeout=2, allow_redirects=False)
+                            if _rc_resp.status_code != 404 or "Not Found" not in _rc_resp.text:
+                                _rc_ready = True
+                                break
+                        except _req_rc.ConnectionError:
+                            pass
+                        except Exception:
+                            break
+                        time.sleep(0.4)
+                    _rc_elapsed = round(time.monotonic() - _rc_start, 2)
+                    if _rc_ready:
+                        append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Reconnected tunnel reachable after {_rc_elapsed}s")
+                    else:
+                        append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Reconnected tunnel not confirmed after {_rc_elapsed}s")
+                except ImportError:
+                    time.sleep(3)
                 break  # Success — go back to watching.
             else:
                 # All attempts exhausted.
@@ -3107,11 +3129,34 @@ def _build_miniapp_session(
         # Update the server's tunnel URL now that we know the real address
         http_server._tunnel_base_url = public_url.rstrip("/")
 
-        # Small propagation wait: Cloudflare CDN needs ~2-3 s to register the
-        # ephemeral tunnel in its DNS before external clients can resolve it.
-        # The Telegram message is sent after this pause, so by the time the
-        # user taps the inline button the URL is fully reachable.
-        time.sleep(3)
+        # Smart propagation wait: poll the tunnel URL until it responds
+        # instead of a fixed 3-second sleep.  Falls back to 3 s if the
+        # requests library is unavailable.
+        _propagation_start = time.monotonic()
+        try:
+            import requests as _req
+            _max_wait = 6.0   # give up after 6 s
+            _poll_interval = 0.4
+            _ready = False
+            while (time.monotonic() - _propagation_start) < _max_wait:
+                try:
+                    _resp = _req.get(public_url, timeout=2, allow_redirects=False)
+                    if _resp.status_code != 404 or "Not Found" not in _resp.text:
+                        _ready = True
+                        break
+                except _req.ConnectionError:
+                    pass
+                except Exception:
+                    break
+                time.sleep(_poll_interval)
+            _elapsed = round(time.monotonic() - _propagation_start, 2)
+            if _ready:
+                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Tunnel reachable after {_elapsed}s (smart propagation)")
+            else:
+                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Tunnel not confirmed after {_elapsed}s -- proceeding anyway")
+        except ImportError:
+            time.sleep(3)
+            append_log_line(get_remote_input_diag_log_path(), "[MiniApp] 'requests' unavailable -- used 3s fixed propagation wait")
 
         webapp_url = f"{public_url.rstrip('/')}/?t={token}"
         append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Mini App ready at {webapp_url}")
@@ -3469,110 +3514,13 @@ def create_remote_input_dialog(
 
         result_container["source"] = None        # "tkinter" | "telegram_reply" | "telegram_miniapp" | ...
 
-        # --- 1. Initialise Telegram bridge (optional) ---
+        # --- Parallel setup: dialog + Telegram run concurrently ---
+        will_attempt_telegram = is_telegram_configured() and TelegramBridge is not None
+        telegram_setup_complete = threading.Event()  # signalled after TG vars are ready
+        telegram_active = False  # updated by _telegram_setup_thread
+        thread_container: Dict[str, Any] = {}  # holds tg_thread/setup_thread refs
 
-        if is_telegram_configured() and TelegramBridge is not None:
-            try:
-                tg_bridge = TelegramBridge()
-                plain_prompt_attempted = False
-
-                # --- 1a. Attempt Mini App session (Cloudflare tunnel + HTTP server) ---
-                all_prompts = _get_multiline_input_custom_prompts()
-                miniapp_session = _build_miniapp_session(title, prompt, all_prompts, name_or_role)
-
-                if miniapp_session:
-                    # Mini App path: send prompt with InlineKeyboard Open button
-                    tg_msg_id = _send_remote_prompt(
-                        tg_bridge,
-                        title,
-                        prompt,
-                        attachment_path=file_path,
-                        webapp_url=miniapp_session.webapp_url,
-                        name_or_role=name_or_role,
-                    )
-                    if tg_msg_id:
-                        print(f"[RemoteInput] Telegram Mini App prompt sent (msg_id={tg_msg_id})")
-                        # Wire auto-reconnect button update callback.
-                        _main_tg = tg_bridge
-                        _main_msg_id = tg_msg_id
-                        def _main_url_changed(new_url: str) -> None:
-                            try:
-                                _main_tg.update_miniapp_button(_main_msg_id, new_url)
-                                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Telegram button updated to {new_url}")
-                            except Exception as exc:
-                                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Failed to update Telegram button: {exc}")
-                        miniapp_session.on_url_changed = _main_url_changed
-                    else:
-                        print("[RemoteInput] send_prompt_with_miniapp failed — falling back to plain prompt")
-                        _diag("Mini App prompt send failed; retrying with plain Telegram prompt.")
-                        miniapp_session.stop()
-                        miniapp_session = None
-                        plain_prompt_attempted = True
-                        tg_msg_id = _send_remote_prompt(
-                            tg_bridge,
-                            title,
-                            prompt,
-                            attachment_path=file_path,
-                        )
-
-                if not miniapp_session:
-                    # Plain prompt path (no Mini App)
-                    if tg_msg_id is None and not plain_prompt_attempted:
-                        tg_msg_id = _send_remote_prompt(
-                            tg_bridge,
-                            title,
-                            prompt,
-                            attachment_path=file_path,
-                        )
-                    if tg_msg_id:
-                        print(f"[RemoteInput] Telegram prompt sent (msg_id={tg_msg_id})")
-                    else:
-                        _set_fallback_notice(
-                            "Telegram prompt send failed; continuing with the local dialog only."
-                        )
-                        print("[RemoteInput] Failed to send Telegram prompt -- continuing with tkinter only")
-                        tg_bridge = None
-
-            except Exception as exc:
-                if is_shared_telegram_enabled():
-                    raise
-                # Diagnostic Point B: log detailed Telegram init failure context
-                _mode_attempted = get_shared_telegram_mode()
-                _hub_reachable = "unknown"
-                try:
-                    _hub_status = describe_shared_hub_status()
-                    _hub_reachable = str(_hub_status.get("hub_reachable", "N/A"))
-                except Exception:
-                    _hub_reachable = "status_check_failed"
-                _diag(
-                    f"Telegram init FAILED -- falling back to tkinter-only. "
-                    f"exception_type={type(exc).__name__}, "
-                    f"exception_msg={exc}, "
-                    f"mode_attempted={_mode_attempted}, "
-                    f"hub_reachable={_hub_reachable}, "
-                    f"miniapp_was_active={miniapp_session is not None}"
-                )
-                _set_fallback_notice(
-                    f"Telegram is unavailable for this request ({type(exc).__name__}: {exc}). "
-                    "Continuing with the local dialog only. See logs/remote_input_diag.log for details."
-                )
-                print(f"[RemoteInput] Telegram init error: {exc} -- continuing with tkinter only")
-                if miniapp_session:
-                    miniapp_session.stop()
-                    miniapp_session = None
-                tg_bridge = None
-
-        telegram_active = tg_bridge is not None and tg_msg_id is not None
-
-        # Diagnostic Point C: log which channels are active after setup
-        _diag(
-            f"Dual-channel setup complete. "
-            f"telegram={telegram_active}, tkinter=True, "
-            f"tg_msg_id={tg_msg_id}, "
-            f"miniapp={'active' if miniapp_session else 'none'}"
-        )
-
-        # --- 2. Create tkinter dialog on the GUI thread ---
+        # --- 1. Create tkinter dialog on the GUI thread (immediate) ---
         def _create_on_gui():
             try:
                 # Skip late dialog creation if the MCP transport has already
@@ -3594,7 +3542,7 @@ def create_remote_input_dialog(
                 if _get_remote_input_notifications_enabled():
                     _play_remote_input_notification_beep()
 
-                top_banner_rows = int(bool(name_or_role)) + int(bool(telegram_active))
+                top_banner_rows = int(bool(name_or_role)) + int(will_attempt_telegram)
                 if top_banner_rows:
                     try:
                         for widget in [
@@ -3619,12 +3567,9 @@ def create_remote_input_dialog(
                 top_banner_row = 0
 
                 # Inject a Telegram status indicator near the top of the dialog
-                if telegram_active:
+                if will_attempt_telegram:
                     try:
-                        if miniapp_session:
-                            tg_label_text = "\U0001f4f2  Telegram Mini App active — tap the button in the chat to respond"
-                        else:
-                            tg_label_text = "\U0001f4e1  Telegram link active — you can also reply from your phone"
+                        tg_label_text = "\u23f3  Connecting to Telegram..."
                         tg_label = tk.Label(
                             dlg.main_frame,
                             text=tg_label_text,
@@ -3658,32 +3603,16 @@ def create_remote_input_dialog(
                     except Exception:
                         pass
 
-                if fallback_notice:
-                    try:
-                        fallback_label = tk.Label(
-                            dlg.main_frame,
-                            text=f"Warning: {fallback_notice}",
-                            bg=dlg.theme_colors["bg_secondary"],
-                            fg=dlg.theme_colors.get("error_color", "#D93025"),
-                            font=get_system_font(),
-                            anchor="w",
-                            justify="left",
-                            wraplength=540,
-                            padx=8,
-                            pady=4,
-                        )
-                        fallback_label.grid(
-                            row=5 + top_banner_rows,
-                            column=0,
-                            sticky="ew",
-                            pady=(4, 0),
-                        )
-                        dlg._fallback_label = fallback_label
-                    except Exception:
-                        pass
-
                 try:
+                    # Force window to top of screen after all banners are injected
+                    dlg.dialog.update_idletasks()
+                    _fw = dlg.dialog.winfo_width()
+                    _fsw = dlg.dialog.winfo_screenwidth()
+                    _fx = (_fsw // 2) - (_fw // 2)
+                    dlg.dialog.geometry(f"+{_fx}+0")
+                    dlg.dialog.deiconify()  # Show window now at correct position
                     dlg.dialog.lift()
+                    dlg.dialog.focus_force()
                 except Exception:
                     pass
             except Exception as e:
@@ -3827,10 +3756,173 @@ def create_remote_input_dialog(
                 else:
                     _diag("telegram_poller: GUI queue unavailable during remote answer cleanup")
 
-        tg_thread = threading.Thread(
-            target=_telegram_poller, daemon=True, name="tg-remote-input-poller"
-        )
-        tg_thread.start()
+        # --- 3. Background Telegram setup thread ---
+        def _telegram_setup_thread():
+            nonlocal tg_bridge, tg_msg_id, miniapp_session, telegram_active, fallback_notice
+            try:
+                if master_done.is_set():
+                    return
+
+                tg_bridge = TelegramBridge()
+                plain_prompt_attempted = False
+
+                # Attempt Mini App session (Cloudflare tunnel + HTTP server)
+                all_prompts = _get_multiline_input_custom_prompts()
+                miniapp_session = _build_miniapp_session(title, prompt, all_prompts, name_or_role)
+
+                if miniapp_session:
+                    # Tunnel is up — update banner eagerly so the user sees
+                    # "active" before the Telegram API send/pin calls complete.
+                    def _eager_miniapp_banner():
+                        if master_done.is_set():
+                            return
+                        dlg = result_container.get("dialog")
+                        if dlg and hasattr(dlg, '_tg_label'):
+                            try:
+                                dialog_exists = getattr(dlg, '_dialog_exists', lambda: True)
+                                if dialog_exists():
+                                    dlg._tg_label.configure(
+                                        text="\U0001f4f2  Telegram Mini App active \u2014 tap the button in the chat to respond"
+                                    )
+                            except Exception:
+                                pass
+                    if _dialog_request_queue is not None:
+                        _dialog_request_queue.put(_eager_miniapp_banner)
+
+                    tg_msg_id = _send_remote_prompt(
+                        tg_bridge,
+                        title,
+                        prompt,
+                        attachment_path=file_path,
+                        webapp_url=miniapp_session.webapp_url,
+                        name_or_role=name_or_role,
+                    )
+                    if tg_msg_id:
+                        print(f"[RemoteInput] Telegram Mini App prompt sent (msg_id={tg_msg_id})")
+                        _main_tg = tg_bridge
+                        _main_msg_id = tg_msg_id
+                        def _main_url_changed(new_url: str) -> None:
+                            try:
+                                _main_tg.update_miniapp_button(_main_msg_id, new_url)
+                                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Telegram button updated to {new_url}")
+                            except Exception as exc:
+                                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Failed to update Telegram button: {exc}")
+                        miniapp_session.on_url_changed = _main_url_changed
+                    else:
+                        print("[RemoteInput] send_prompt_with_miniapp failed -- falling back to plain prompt")
+                        _diag("Mini App prompt send failed; retrying with plain Telegram prompt.")
+                        miniapp_session.stop()
+                        miniapp_session = None
+                        plain_prompt_attempted = True
+                        tg_msg_id = _send_remote_prompt(
+                            tg_bridge,
+                            title,
+                            prompt,
+                            attachment_path=file_path,
+                        )
+
+                if not miniapp_session:
+                    if tg_msg_id is None and not plain_prompt_attempted:
+                        tg_msg_id = _send_remote_prompt(
+                            tg_bridge,
+                            title,
+                            prompt,
+                            attachment_path=file_path,
+                        )
+                    if tg_msg_id:
+                        print(f"[RemoteInput] Telegram prompt sent (msg_id={tg_msg_id})")
+                    else:
+                        _set_fallback_notice(
+                            "Telegram prompt send failed; continuing with the local dialog only."
+                        )
+                        print("[RemoteInput] Failed to send Telegram prompt -- continuing with tkinter only")
+                        tg_bridge = None
+
+            except Exception as exc:
+                # In the background thread, re-raising would just kill the
+                # thread silently.  Log at high severity and fall back.
+                _mode_attempted = get_shared_telegram_mode()
+                _hub_reachable = "unknown"
+                try:
+                    _hub_status = describe_shared_hub_status()
+                    _hub_reachable = str(_hub_status.get("hub_reachable", "N/A"))
+                except Exception:
+                    _hub_reachable = "status_check_failed"
+                _diag(
+                    f"Telegram init FAILED -- falling back to tkinter-only. "
+                    f"exception_type={type(exc).__name__}, "
+                    f"exception_msg={exc}, "
+                    f"mode_attempted={_mode_attempted}, "
+                    f"hub_reachable={_hub_reachable}, "
+                    f"miniapp_was_active={miniapp_session is not None}"
+                )
+                _set_fallback_notice(
+                    f"Telegram is unavailable for this request ({type(exc).__name__}: {exc}). "
+                    "Continuing with the local dialog only. See logs/remote_input_diag.log for details."
+                )
+                print(f"[RemoteInput] Telegram init error: {exc} -- continuing with tkinter only")
+                if miniapp_session:
+                    miniapp_session.stop()
+                    miniapp_session = None
+                tg_bridge = None
+            finally:
+                telegram_active = tg_bridge is not None and tg_msg_id is not None
+                telegram_setup_complete.set()
+
+            _diag(
+                f"Telegram setup complete. "
+                f"telegram={telegram_active}, tkinter=True, "
+                f"tg_msg_id={tg_msg_id}, "
+                f"miniapp={'active' if miniapp_session else 'none'}"
+            )
+
+            # Update the placeholder banner on the GUI thread
+            def _update_telegram_banner():
+                if master_done.is_set():
+                    return
+                dlg = result_container.get("dialog")
+                if dlg is None:
+                    return
+                try:
+                    dialog_exists = getattr(dlg, '_dialog_exists', lambda: True)
+                    if not dialog_exists():
+                        return
+                    if telegram_active and hasattr(dlg, '_tg_label'):
+                        if miniapp_session:
+                            new_text = "\U0001f4f2  Telegram Mini App active \u2014 tap the button in the chat to respond"
+                        else:
+                            new_text = "\U0001f4e1  Telegram link active \u2014 you can also reply from your phone"
+                        dlg._tg_label.configure(text=new_text)
+                    elif not telegram_active and hasattr(dlg, '_tg_label'):
+                        if fallback_notice:
+                            dlg._tg_label.configure(
+                                text=f"\u26a0\ufe0f  {fallback_notice}",
+                                fg=dlg.theme_colors.get("error_color", "#D93025"),
+                            )
+                        else:
+                            dlg._tg_label.grid_remove()
+                except Exception:
+                    pass
+
+            if _dialog_request_queue is not None:
+                _dialog_request_queue.put(_update_telegram_banner)
+
+            # Start Telegram poller now that setup is complete
+            if telegram_active and not master_done.is_set():
+                _tg_poller_thread = threading.Thread(
+                    target=_telegram_poller, daemon=True, name="tg-remote-input-poller"
+                )
+                thread_container["tg_thread"] = _tg_poller_thread
+                _tg_poller_thread.start()
+
+        if will_attempt_telegram:
+            _setup_thread = threading.Thread(
+                target=_telegram_setup_thread, daemon=True, name="telegram-setup"
+            )
+            thread_container["setup_thread"] = _setup_thread
+            _setup_thread.start()
+        else:
+            telegram_setup_complete.set()
 
         # --- 4. Monitor thread for tkinter completion ---
         def _tkinter_monitor():
@@ -3852,9 +3944,18 @@ def create_remote_input_dialog(
         if tg_cancel is not None:
             tg_cancel.set()  # ensure poller stops
 
+        # Wait for background Telegram setup to finish before accessing its
+        # variables (tg_bridge, tg_msg_id, miniapp_session).
+        telegram_setup_complete.wait(timeout=30)
+
         # Give the auxiliary threads a brief chance to observe the shared
         # completion state before this worker returns to the cancelled caller.
-        tg_thread.join(timeout=0.5)
+        _tg_thread = thread_container.get("tg_thread")
+        if _tg_thread is not None:
+            _tg_thread.join(timeout=0.5)
+        _setup_thread = thread_container.get("setup_thread")
+        if _setup_thread is not None:
+            _setup_thread.join(timeout=0.5)
         tk_monitor.join(timeout=0.5)
         transport_cancel_thread.join(timeout=0.5)
 
