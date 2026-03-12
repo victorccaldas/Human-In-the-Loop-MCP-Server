@@ -25,10 +25,21 @@ If a human answers via tkinter or Telegram (instead of Paperclip), the answer is
 ### 1. Install & run Paperclip
 
 ```bash
-npx paperclip
+npx paperclipai onboard --yes
 ```
 
-This starts Paperclip on `http://localhost:3100`.
+Or manually:
+
+```bash
+git clone https://github.com/paperclipai/paperclip.git
+cd paperclip
+pnpm install
+pnpm dev
+```
+
+This starts the API server at `http://localhost:3100`. An embedded PostgreSQL database is created automatically.
+
+> Requirements: Node.js 20+, pnpm 9.15+
 
 ### 2. Create the configuration file
 
