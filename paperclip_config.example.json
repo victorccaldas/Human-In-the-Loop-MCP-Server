@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "webhook_port": 8765,
+  "paperclip_api_url": "http://localhost:3100/api",
+  "agent_api_key": "",
+  "priority_mode": "first_wins",
+  "reverse_path": true
+}

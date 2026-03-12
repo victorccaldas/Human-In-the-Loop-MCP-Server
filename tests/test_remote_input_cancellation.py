@@ -33,6 +33,8 @@ async def test_get_remote_input_cancellation_re_raises_and_signals_worker(monkey
         default_value="",
         name_or_role="",
         external_cancel=None,
+        file_path=None,
+        paperclip_agent_id="",
     ):
         captured["external_cancel"] = external_cancel
         worker_started.set()
@@ -72,6 +74,8 @@ async def test_get_remote_input_cancellation_does_not_cancel_sibling_request(mon
         default_value="",
         name_or_role="",
         external_cancel=None,
+        file_path=None,
+        paperclip_agent_id="",
     ):
         assert external_cancel is not None
         captured_events[prompt] = external_cancel
@@ -121,6 +125,8 @@ async def test_get_remote_input_cancellation_waits_for_bounded_worker_cleanup(mo
         default_value="",
         name_or_role="",
         external_cancel=None,
+        file_path=None,
+        paperclip_agent_id="",
     ):
         assert external_cancel is not None
         if prompt == "first":
@@ -268,7 +274,7 @@ def test_create_remote_input_dialog_gui_transport_cancel_closes_dialog(monkeypat
             observed["lifted"] = True
 
     class _FakeMultilineInputDialog:
-        def __init__(self, parent, title, prompt, default_value="", done_event=None):
+        def __init__(self, parent, title, prompt, default_value="", done_event=None, **kwargs):
             self.result = None
             self._done_event = done_event
             self._reminder_id = None
@@ -417,7 +423,7 @@ def test_create_remote_input_dialog_gui_local_reply_unpins_prompt(monkeypatch):
             return None
 
     class _FakeMultilineInputDialog:
-        def __init__(self, parent, title, prompt, default_value="", done_event=None):
+        def __init__(self, parent, title, prompt, default_value="", done_event=None, **kwargs):
             self.result = "answered locally"
             self._done_event = done_event
             self._reminder_id = None
@@ -429,8 +435,10 @@ def test_create_remote_input_dialog_gui_local_reply_unpins_prompt(monkeypatch):
                 "accent_color": "#06c",
                 "success_color": "#137333",
             }
+            # Delay done_event to let the telegram setup thread finish first;
+            # ImmediateQueue runs synchronously which otherwise causes a race.
             if self._done_event is not None:
-                self._done_event.set()
+                threading.Timer(0.3, self._done_event.set).start()
 
     class _FakeTelegramBridge:
         def __init__(self):
@@ -508,7 +516,7 @@ def test_create_remote_input_dialog_gui_local_cancel_unpins_prompt(monkeypatch):
             return None
 
     class _FakeMultilineInputDialog:
-        def __init__(self, parent, title, prompt, default_value="", done_event=None):
+        def __init__(self, parent, title, prompt, default_value="", done_event=None, **kwargs):
             self.result = None
             self._done_event = done_event
             self._reminder_id = None
@@ -520,8 +528,10 @@ def test_create_remote_input_dialog_gui_local_cancel_unpins_prompt(monkeypatch):
                 "accent_color": "#06c",
                 "success_color": "#137333",
             }
+            # Delay done_event to let the telegram setup thread finish first;
+            # ImmediateQueue runs synchronously which otherwise causes a race.
             if self._done_event is not None:
-                self._done_event.set()
+                threading.Timer(0.3, self._done_event.set).start()
 
     class _FakeTelegramBridge:
         def __init__(self):
@@ -596,7 +606,7 @@ def test_create_remote_input_dialog_gui_unexpected_exception_still_cleans_up_pro
             return None
 
     class _FakeMultilineInputDialog:
-        def __init__(self, parent, title, prompt, default_value="", done_event=None):
+        def __init__(self, parent, title, prompt, default_value="", done_event=None, **kwargs):
             self.result = None
             self._done_event = done_event
             self._reminder_id = None
@@ -638,6 +648,7 @@ def test_create_remote_input_dialog_gui_unexpected_exception_still_cleans_up_pro
     monkeypatch.setattr(server, "_build_miniapp_session", lambda *args, **kwargs: None)
     monkeypatch.setattr(server.tk, "Label", _FakeLabel)
     monkeypatch.setattr(server.threading, "Thread", _FailingPollerThread)
+    monkeypatch.setattr(server, "_get_tool_timeout", lambda: 1.0)
 
     result = server.create_remote_input_dialog("Title", "Prompt")
 

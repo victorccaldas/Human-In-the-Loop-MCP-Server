@@ -71,7 +71,7 @@ def test_create_remote_input_dialog_passes_attachment_to_gui_dialog(monkeypatch)
             return None
 
     class _FakeMultilineInputDialog:
-        def __init__(self, parent, title, prompt, default_value="", done_event=None, attachment_path=None):
+        def __init__(self, parent, title, prompt, default_value="", done_event=None, attachment_path=None, **kwargs):
             observed["attachment_path"] = attachment_path
             self.result = "done"
             self._done_event = done_event

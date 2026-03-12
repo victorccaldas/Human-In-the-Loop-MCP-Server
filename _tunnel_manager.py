@@ -403,7 +403,12 @@ class CloudflareTunnel:
                 self._log(f"[CloudflareTunnel] on_tunnel_died callback error: {exc}")
 
     def _health_check_loop(self) -> None:
-        """Periodically verify that the tunnel URL is reachable."""
+        """Periodically verify that the tunnel URL is reachable.
+
+        After ``_MAX_CONSECUTIVE_HEALTH_FAILURES`` consecutive failures the
+        cloudflared process is terminated, which triggers the auto-reconnect
+        flow in ``MiniAppSession._reconnect_loop``.
+        """
         try:
             import requests as _req
         except ImportError:
@@ -413,6 +418,8 @@ class CloudflareTunnel:
         # Wait a short period after startup before beginning health checks.
         _initial_delay = 10.0
         _check_interval = 30.0
+        _max_consecutive_failures = 3
+        _consecutive_failures = 0
 
         start = time.monotonic()
         while not self._stopped:
@@ -430,6 +437,7 @@ class CloudflareTunnel:
             if not url:
                 break
 
+            _is_failure = False
             try:
                 resp = _req.get(url, timeout=10, allow_redirects=False)
                 if resp.status_code in (502, 504):
@@ -437,6 +445,7 @@ class CloudflareTunnel:
                         f"[CloudflareTunnel] Health check WARN: "
                         f"GET {url} returned HTTP {resp.status_code}."
                     )
+                    _is_failure = True
                 elif resp.status_code == 404 and "Not Found" in resp.text and len(resp.text) < 50:
                     # Cloudflare's plain "Not Found" for dead quick tunnels.
                     self._log_critical(
@@ -444,21 +453,38 @@ class CloudflareTunnel:
                         f"GET {url} returned Cloudflare 'Not Found' -- "
                         f"tunnel may be disconnected."
                     )
+                    _is_failure = True
+                else:
+                    _consecutive_failures = 0
             except _req.ConnectionError:
                 self._log(
                     f"[CloudflareTunnel] Health check FAIL: "
                     f"Connection error reaching {url}."
                 )
+                _is_failure = True
             except _req.Timeout:
                 self._log(
                     f"[CloudflareTunnel] Health check WARN: "
                     f"GET {url} timed out (10 s)."
                 )
+                _is_failure = True
             except Exception as exc:
                 self._log(
                     f"[CloudflareTunnel] Health check error: "
                     f"{type(exc).__name__}: {exc}"
                 )
+                _is_failure = True
+
+            if _is_failure:
+                _consecutive_failures += 1
+                if _consecutive_failures >= _max_consecutive_failures:
+                    self._log_critical(
+                        f"[CloudflareTunnel] {_consecutive_failures} consecutive "
+                        f"health check failures — terminating tunnel to trigger "
+                        f"auto-reconnect."
+                    )
+                    self._terminate_proc()
+                    break
 
             # Wait for next check interval (interruptible).
             if self._process_died_event.wait(timeout=_check_interval):

@@ -51,6 +51,34 @@ except ImportError:
     def is_telegram_configured() -> bool:  # type: ignore[misc]
         return False
 
+# Paperclip bridge for heartbeat integration (optional — degrades gracefully)
+try:
+    from _paperclip_bridge import (
+        PaperclipBridge as _PaperclipBridgeClass,
+        ensure_paperclip_bridge,
+        get_bridge as get_paperclip_bridge,
+        is_paperclip_configured,
+        register_prompt as _paperclip_register_prompt,
+        report_human_answer as _paperclip_report_human_answer,
+        unregister_prompt as _paperclip_unregister_prompt,
+    )
+    _PAPERCLIP_AVAILABLE = True
+except ImportError:
+    _PAPERCLIP_AVAILABLE = False
+    _PaperclipBridgeClass = None  # type: ignore[misc, assignment]
+    def ensure_paperclip_bridge():  # type: ignore[misc]
+        return None
+    def get_paperclip_bridge():  # type: ignore[misc]
+        return None
+    def is_paperclip_configured() -> bool:  # type: ignore[misc]
+        return False
+    def _paperclip_register_prompt(*_a, **_kw):  # type: ignore[misc]
+        pass
+    def _paperclip_unregister_prompt(*_a, **_kw):  # type: ignore[misc]
+        return None
+    def _paperclip_report_human_answer(*_a, **_kw) -> bool:  # type: ignore[misc]
+        return False
+
 # Shared Telegram hub helpers (optional — degrade gracefully when unavailable)
 try:
     from _telegram_shared_hub import (
@@ -3279,6 +3307,7 @@ def create_remote_input_dialog(
     name_or_role: str = "",
     external_cancel: Optional[threading.Event] = None,
     file_path: Optional[str] = None,
+    paperclip_agent_id: str = "",
 ):
     """Create a multiline input dialog + Telegram prompt.
 
@@ -3999,6 +4028,22 @@ def create_remote_input_dialog(
         )
         tk_monitor.start()
 
+        # --- 4b. Register with Paperclip bridge (if applicable) ---
+        _pc_registered = False
+        if paperclip_agent_id and _PAPERCLIP_AVAILABLE:
+            try:
+                _paperclip_register_prompt(
+                    paperclip_agent_id,
+                    _claim_completion,
+                    master_done,
+                    {"tg_cancel": tg_cancel},
+                    {"title": title, "prompt": prompt[:200], "name_or_role": name_or_role},
+                )
+                _pc_registered = True
+                _diag(f"Registered with Paperclip bridge (agent={paperclip_agent_id})")
+            except Exception as _pc_exc:
+                _diag(f"Paperclip registration failed (non-fatal): {_pc_exc}")
+
         # --- 5. Wait for either channel to deliver a result ---
         timeout = _get_tool_timeout()
         master_done.wait(timeout=timeout)
@@ -4006,6 +4051,33 @@ def create_remote_input_dialog(
         # --- 6. Cleanup: update the Telegram message with final status ---
         if tg_cancel is not None:
             tg_cancel.set()  # ensure poller stops
+
+        # --- 6a. Paperclip cleanup: unregister + reverse path ---
+        if _pc_registered and paperclip_agent_id:
+            try:
+                _paperclip_unregister_prompt(paperclip_agent_id)
+            except Exception:
+                pass
+            # Reverse path: if a human (not Paperclip) answered, report to Paperclip
+            _pc_source = result_container.get("source")
+            _pc_text = result_container.get("text")
+            if (
+                _pc_source
+                and _pc_source != "paperclip_heartbeat"
+                and _pc_text is not None
+            ):
+                _pc_bridge = get_paperclip_bridge()
+                if _pc_bridge and _pc_bridge.reverse_path_enabled:
+                    try:
+                        _paperclip_report_human_answer(
+                            paperclip_agent_id,
+                            _pc_text,
+                            _pc_source,
+                            _pc_bridge.api_client,
+                        )
+                        _diag(f"Reverse path: reported human answer to Paperclip (agent={paperclip_agent_id})")
+                    except Exception as _rp_exc:
+                        _diag(f"Reverse path failed (non-fatal): {_rp_exc}")
 
         # Wait for background Telegram setup to finish before accessing its
         # variables (tg_bridge, tg_msg_id, miniapp_session).
@@ -4105,6 +4177,12 @@ def create_remote_input_dialog(
               f"(title={title!r}): {type(e).__name__}: {e}")
         _tb.print_exc()
         _best_effort_gui_prompt_cleanup()
+        # Unregister Paperclip prompt on error
+        if paperclip_agent_id and locals().get("_pc_registered"):
+            try:
+                _paperclip_unregister_prompt(paperclip_agent_id)
+            except Exception:
+                pass
         # Best-effort cleanup of Mini App session on unexpected errors
         try:
             if miniapp_session is not None:
@@ -4121,6 +4199,7 @@ async def get_remote_input(
     default_value: Annotated[str, Field(description="Default text to pre-fill in the text area")] = "",
     name_or_role: Annotated[str, Field(description="Name or role of the AI agent making the request (e.g. 'Orchestrator', 'Code Reviewer'). Shown as a badge in the Telegram Mini App and dialog.")] = "",
     file_path: Annotated[Optional[str], Field(description="Optional absolute or relative file path to attach to the Telegram prompt and show as a clickable link in the local dialog.")] = None,
+    paperclip_agent_id: Annotated[str, Field(description="Optional Paperclip agent ID to link this prompt to a Paperclip heartbeat session. When set, Paperclip heartbeats for this agent can inject answers into the waiting prompt.")] = "",
     ctx: Context = None
 ) -> Dict[str, Any]:
     """
@@ -4198,6 +4277,7 @@ async def get_remote_input(
                 name_or_role,
                 transport_cancel,
                 resolved_attachment_path,
+                paperclip_agent_id,
             )
         else:
             worker_future = executor.submit(
@@ -4207,6 +4287,8 @@ async def get_remote_input(
                 default_value,
                 name_or_role,
                 transport_cancel,
+                None,  # file_path
+                paperclip_agent_id,
             )
         result_future = asyncio.wrap_future(worker_future, loop=loop)
 
@@ -4644,6 +4726,17 @@ def main():
         else:
             detect_unsafe_direct_polling(load_telegram_credentials())
         _start_command_poller()
+
+    # Paperclip bridge (optional — crash-isolated)
+    if is_paperclip_configured():
+        try:
+            _pc_bridge = ensure_paperclip_bridge()
+            if _pc_bridge and _pc_bridge.is_running:
+                print(f"Paperclip bridge active on port {_pc_bridge.port}")
+            else:
+                print("Paperclip bridge configured but failed to start (non-fatal)")
+        except Exception as _pc_exc:
+            print(f"Paperclip bridge startup error (non-fatal): {_pc_exc}")
 
     print("Starting MCP server...")
     
