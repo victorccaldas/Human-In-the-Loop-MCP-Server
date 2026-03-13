@@ -3327,6 +3327,10 @@ class _MiniAppPool:
                 )
                 self._reconnect_thread.start()
 
+            # Update active sessions whose URLs point to the old tunnel
+            if old_tunnel is not None:
+                self._update_active_sessions(url)
+
             # Stop the old tunnel if there was one
             if old_tunnel is not None:
                 try:
@@ -3420,19 +3424,45 @@ class _MiniAppPool:
     _MAX_RECONNECT_ATTEMPTS = 5
     _RECONNECT_COOLDOWNS = [5, 10, 20, 30, 30]
 
+    def _update_active_sessions(self, new_url: str) -> None:
+        """Update webapp_url and fire on_url_changed for all active sessions.
+
+        Must be called while ``self._lock`` is held.
+        """
+        for token, session in self._active_sessions.items():
+            new_webapp_url = f"{new_url.rstrip('/')}/?t={token}"
+            session.webapp_url = new_webapp_url
+            cb = session.on_url_changed
+            if cb is not None:
+                try:
+                    cb(new_webapp_url)
+                except Exception as exc:
+                    append_log_line(
+                        get_remote_input_diag_log_path(),
+                        f"[MiniApp Pool] on_url_changed callback error: {exc}",
+                    )
+
     def _reconnect_loop(self) -> None:
         """Watch for tunnel death and reconnect, updating all active sessions."""
         while not self._stop_event.is_set():
-            if self._tunnel is None:
+            # Snapshot the tunnel reference so we can detect replacement.
+            with self._lock:
+                tunnel_ref = self._tunnel
+            if tunnel_ref is None:
                 if self._stop_event.wait(timeout=2.0):
                     return
                 continue
 
-            died = self._tunnel.process_died.wait(timeout=2.0)
+            died = tunnel_ref.process_died.wait(timeout=2.0)
             if self._stop_event.is_set():
                 return
             if not died:
                 continue
+
+            # Tunnel died — but _ensure_infra may have already replaced it.
+            with self._lock:
+                if self._tunnel is not tunnel_ref:
+                    continue  # Already replaced, go back to waiting on new tunnel
 
             for attempt in range(1, self._MAX_RECONNECT_ATTEMPTS + 1):
                 if self._stop_event.is_set():
@@ -3448,8 +3478,14 @@ class _MiniAppPool:
                 if self._stop_event.wait(timeout=cooldown):
                     return
 
+                # Check again after cooldown — _ensure_infra may have replaced
+                # the tunnel while we were sleeping.
+                with self._lock:
+                    if self._tunnel is not tunnel_ref:
+                        break  # Replaced during cooldown, exit attempt loop
+
                 try:
-                    new_url = self._tunnel.reconnect(timeout=20.0)
+                    new_url = tunnel_ref.reconnect(timeout=20.0)
                 except Exception as exc:
                     append_log_line(
                         get_remote_input_diag_log_path(),
@@ -3459,22 +3495,19 @@ class _MiniAppPool:
 
                 # Reconnect succeeded — update everything
                 with self._lock:
+                    # Final check: was the tunnel replaced while we reconnected?
+                    if self._tunnel is not tunnel_ref:
+                        # Another thread already created a new tunnel; stop
+                        # the one we just reconnected to avoid duplicates.
+                        try:
+                            tunnel_ref.stop()
+                        except Exception:
+                            pass
+                        break
                     self._tunnel_url = new_url
                     if self._server is not None:
                         self._server.update_tunnel_url(new_url)
-
-                    for token, session in self._active_sessions.items():
-                        new_webapp_url = f"{new_url.rstrip('/')}/?t={token}"
-                        session.webapp_url = new_webapp_url
-                        cb = session.on_url_changed
-                        if cb is not None:
-                            try:
-                                cb(new_webapp_url)
-                            except Exception as exc:
-                                append_log_line(
-                                    get_remote_input_diag_log_path(),
-                                    f"[MiniApp Pool] on_url_changed callback error: {exc}",
-                                )
+                    self._update_active_sessions(new_url)
 
                 append_log_line(
                     get_remote_input_diag_log_path(),
