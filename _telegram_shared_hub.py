@@ -233,6 +233,14 @@ def get_telegram_admin_commands() -> list[dict[str, str]]:
             "command": "tkinter_sound_off",
             "description": "Disable tkinter beeps for new get_remote_input dialogs",
         },
+        {
+            "command": "tkinter_on",
+            "description": "Enable tkinter dialog windows for get_remote_input",
+        },
+        {
+            "command": "tkinter_off",
+            "description": "Disable tkinter dialog windows (Telegram-only mode)",
+        },
     ]
 
 
@@ -279,6 +287,23 @@ def handle_remote_input_notification_telegram_command(text: str) -> Optional[str
     result = set_remote_input_notifications_enabled(enabled)
     state = "ativadas" if result["enabled"] else "desativadas"
     return f"🔔 Notificações de get_remote_input {state}."
+
+
+def handle_tkinter_toggle_telegram_command(text: str) -> Optional[str]:
+    """Handle /tkinter_on, /tkinter_off, /tkinter commands from the shared hub."""
+    token = _get_telegram_command_token(text)
+    if token not in {"/tkinter_on", "/tkinter_off", "/tkinter"}:
+        return None
+    if token == "/tkinter":
+        enabled = bool(_load_dialog_config().get("tkinter_enabled", True))
+        state = "enabled" if enabled else "disabled"
+        return f"ℹ️ Tkinter dialog windows are currently {state}."
+    enabled = token == "/tkinter_on"
+    config = _load_dialog_config()
+    config["tkinter_enabled"] = enabled
+    _save_dialog_config(config)
+    state = "enabled" if enabled else "disabled (Telegram-only mode)"
+    return f"✅ Tkinter dialog windows {state}."
 
 
 def _get_telegram_command_token(text: str) -> str:
@@ -1687,6 +1712,10 @@ class SharedTelegramHubService:
         notification_reply = handle_remote_input_notification_telegram_command(text)
         if notification_reply is not None:
             self._send_text(notification_reply)
+            return
+        tkinter_toggle_reply = handle_tkinter_toggle_telegram_command(text)
+        if tkinter_toggle_reply is not None:
+            self._send_text(tkinter_toggle_reply)
             return
         auto_message_reply = handle_vscode_auto_message_telegram_command(text)
         if auto_message_reply is not None:

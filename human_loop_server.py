@@ -863,6 +863,12 @@ def _try_handle_telegram_admin_command(tg, text: str) -> bool:
         _handle_bypass_command(tg, normalized_lower)
         return True
 
+    _cmd_token = normalized_lower.split(None, 1)[0].split("@", 1)[0] if normalized_lower else ""
+
+    if _cmd_token in ("/tkinter_on", "/tkinter_off", "/tkinter"):
+        _handle_tkinter_toggle_command(tg, normalized_lower)
+        return True
+
     if normalized_lower.startswith("/tkinter_sound"):
         _handle_notifications_command(tg, normalized_lower)
         return True
@@ -994,6 +1000,28 @@ def _handle_notifications_command(tg, text: str):
         return
 
     tg.send_text("Usage: /tkinter_sound_on | /tkinter_sound_off | /tkinter_sound")
+
+
+def _handle_tkinter_toggle_command(tg, text: str):
+    """Handle tkinter on/off toggle commands from Telegram."""
+    command = text.split(None, 1)[0].split("@", 1)[0]
+
+    if command == "/tkinter_on":
+        _save_tkinter_enabled(True)
+        tg.send_text("✅ Tkinter dialog windows enabled.")
+        return
+
+    if command == "/tkinter_off":
+        _save_tkinter_enabled(False)
+        tg.send_text("✅ Tkinter dialog windows disabled (Telegram-only mode).")
+        return
+
+    if command == "/tkinter":
+        state = "enabled" if _get_tkinter_enabled() else "disabled"
+        tg.send_text(f"ℹ️ Tkinter dialog windows are currently {state}.")
+        return
+
+    tg.send_text("Usage: /tkinter_on | /tkinter_off | /tkinter")
 
 
 def get_system_font():
@@ -2286,6 +2314,8 @@ class MultilineInputDialog:
         attachment_path: Optional[str] = None,
         show_notification_toggle: bool = False,
         notification_enabled: Optional[bool] = None,
+        show_tkinter_toggle: bool = False,
+        tkinter_enabled: Optional[bool] = None,
     ):
         self.result = None
         self._done_event = done_event  # set by ok/cancel to unblock the caller
@@ -2296,6 +2326,13 @@ class MultilineInputDialog:
             value=(
                 _get_remote_input_notifications_enabled()
                 if notification_enabled is None else bool(notification_enabled)
+            )
+        )
+        self._show_tkinter_toggle = show_tkinter_toggle
+        self._tkinter_enabled_var = tk.BooleanVar(
+            value=(
+                _get_tkinter_enabled()
+                if tkinter_enabled is None else bool(tkinter_enabled)
             )
         )
         
@@ -2570,6 +2607,28 @@ class MultilineInputDialog:
         else:
             self.notification_frame = None
             self.notification_toggle = None
+
+        if show_tkinter_toggle:
+            tkinter_frame = tk.Frame(button_frame, bg=self.theme_colors["bg_primary"])
+            tkinter_frame.pack(side=tk.LEFT, padx=(16, 0))
+            self.tkinter_frame = tkinter_frame
+            tkinter_toggle = tk.Checkbutton(
+                tkinter_frame,
+                text="Show tkinter dialogs",
+                variable=self._tkinter_enabled_var,
+                command=self._on_tkinter_toggle,
+                bg=self.theme_colors["bg_primary"],
+                fg=self.theme_colors["fg_secondary"],
+                selectcolor=self.theme_colors["bg_primary"],
+                activebackground=self.theme_colors["bg_primary"],
+                font=get_system_font(),
+                anchor="w",
+            )
+            tkinter_toggle.pack(side=tk.LEFT)
+            self.tkinter_toggle = tkinter_toggle
+        else:
+            self.tkinter_frame = None
+            self.tkinter_toggle = None
 # Create modern buttons
         self.ok_button = create_modern_button(
             button_frame, "OK", self.ok_clicked, "primary", self.theme_colors
@@ -2717,6 +2776,15 @@ class MultilineInputDialog:
                 f"[notification_toggle] Failed to save notification setting: {type(exc).__name__}: {exc}",
             )
 
+    def _on_tkinter_toggle(self):
+        try:
+            _save_tkinter_enabled(self._tkinter_enabled_var.get())
+        except Exception as exc:
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[tkinter_toggle] Failed to save tkinter setting: {type(exc).__name__}: {exc}",
+            )
+
     def ok_clicked(self):
         if not self._begin_close():
             return
@@ -2781,7 +2849,7 @@ async def get_user_input(
     if not _get_tkinter_enabled():
         return {
             "success": False,
-            "error": "Tkinter dialogs are disabled (toggle_tkinter). Use get_remote_input instead.",
+            "error": "Tkinter dialogs are disabled. Use /tkinter_on in Telegram or get_remote_input instead.",
             "cancelled": False,
             "platform": CURRENT_PLATFORM,
         }
@@ -2876,7 +2944,7 @@ async def get_user_choice(
     if not _get_tkinter_enabled():
         return {
             "success": False,
-            "error": "Tkinter dialogs are disabled (toggle_tkinter). Use get_remote_input instead.",
+            "error": "Tkinter dialogs are disabled. Use /tkinter_on in Telegram or get_remote_input instead.",
             "cancelled": False,
             "platform": CURRENT_PLATFORM,
         }
@@ -2974,7 +3042,7 @@ async def get_multiline_input(
     if not _get_tkinter_enabled():
         return {
             "success": False,
-            "error": "Tkinter dialogs are disabled (toggle_tkinter). Use get_remote_input instead.",
+            "error": "Tkinter dialogs are disabled. Use /tkinter_on in Telegram or get_remote_input instead.",
             "cancelled": False,
             "platform": CURRENT_PLATFORM,
         }
@@ -3658,6 +3726,8 @@ def create_remote_input_dialog(
                     dialog_kwargs["attachment_path"] = file_path
                 dialog_kwargs["show_notification_toggle"] = True
                 dialog_kwargs["notification_enabled"] = _get_remote_input_notifications_enabled()
+                dialog_kwargs["show_tkinter_toggle"] = True
+                dialog_kwargs["tkinter_enabled"] = _get_tkinter_enabled()
                 dlg = MultilineInputDialog(
                     root, title, prompt, default_value, **dialog_kwargs
                 )
@@ -3799,7 +3869,7 @@ def create_remote_input_dialog(
         if not _get_tkinter_enabled():
             # Tkinter dialogs disabled by user — skip window entirely but keep
             # Telegram / Paperclip channels active.
-            _diag("Tkinter disabled via toggle_tkinter; skipping dialog creation")
+            _diag("Tkinter disabled; skipping dialog creation")
             tkinter_done.set()
         elif _dialog_request_queue is None:
             _diag("GUI queue unavailable after persistent root initialization; aborting dialog creation")
@@ -4299,7 +4369,7 @@ async def get_remote_input(
                 "error": (
                     "get_remote_input: tkinter dialogs are disabled and Telegram "
                     "is not configured — no input channel available. Enable "
-                    "tkinter (toggle_tkinter) or configure Telegram."
+                    "tkinter (/tkinter_on in Telegram) or configure Telegram."
                 ),
                 "cancelled": False,
                 "platform": CURRENT_PLATFORM,
@@ -4414,7 +4484,7 @@ async def get_remote_input(
 
 
 @mcp.tool()
-async def complete_paperclip_task(
+async def finalize_paperclip_task(
     summary: Annotated[str, Field(description="A detailed summary of the work you completed. Include what was done, any files changed, test results, and next steps.")],
     paperclip_agent_id: Annotated[str, Field(description="Your Paperclip agent ID. This links the completion report back to your Paperclip task.")],
     title: Annotated[str, Field(description="Short title describing the completed task")] = "Task Complete",
@@ -4469,7 +4539,7 @@ async def show_confirmation_dialog(
     if not _get_tkinter_enabled():
         return {
             "success": False,
-            "error": "Tkinter dialogs are disabled (toggle_tkinter). Use get_remote_input instead.",
+            "error": "Tkinter dialogs are disabled. Use /tkinter_on in Telegram or get_remote_input instead.",
             "confirmed": False,
             "platform": CURRENT_PLATFORM,
         }
@@ -4544,7 +4614,7 @@ async def show_info_message(
     if not _get_tkinter_enabled():
         return {
             "success": False,
-            "error": "Tkinter dialogs are disabled (toggle_tkinter). Use get_remote_input instead.",
+            "error": "Tkinter dialogs are disabled. Use /tkinter_on in Telegram or get_remote_input instead.",
             "platform": CURRENT_PLATFORM,
         }
 
@@ -4712,33 +4782,6 @@ OPTIMIZE FOR USER EXPERIENCE:
     
     return guidance
 
-@mcp.tool()
-async def toggle_tkinter(
-    enabled: Annotated[bool, Field(description="True to enable tkinter dialog windows, False to disable them")],
-    ctx: Context = None,
-) -> Dict[str, Any]:
-    """Toggle whether tkinter dialog windows are shown.
-
-    When disabled, tools that require a local GUI (get_user_input, get_user_choice,
-    get_multiline_input, show_confirmation_dialog, show_info_message) will return an
-    error advising the caller to use get_remote_input instead.
-
-    get_remote_input itself will skip the local tkinter window but still work via
-    Telegram / Paperclip channels.
-
-    The setting is persisted in dialog_config.json across restarts.
-    """
-    _save_tkinter_enabled(enabled)
-    state = "enabled" if enabled else "disabled"
-    if ctx:
-        await ctx.info(f"Tkinter dialogs {state}.")
-    return {
-        "success": True,
-        "tkinter_enabled": enabled,
-        "message": f"Tkinter dialog windows are now {state}.",
-        "platform": CURRENT_PLATFORM,
-    }
-
 # Add a health check tool
 @mcp.tool()
 async def health_check() -> Dict[str, Any]:
@@ -4782,10 +4825,9 @@ async def health_check() -> Dict[str, Any]:
                 "get_user_choice", 
                 "get_multiline_input",
                 "get_remote_input",
-                "complete_paperclip_task",
+                "finalize_paperclip_task",
                 "show_confirmation_dialog",
                 "show_info_message",
-                "toggle_tkinter",
                 "get_human_loop_prompt"
             ],
             "tkinter_enabled": _get_tkinter_enabled(),
@@ -4818,10 +4860,9 @@ def main():
     print("get_user_choice - Let user choose from options")
     print("get_multiline_input - Get multi-line text from user")
     print("get_remote_input - Get multi-line text with Telegram remote answering")
-    print("complete_paperclip_task - Report task completion to human operator (Paperclip agents)")
+    print("finalize_paperclip_task - Report task completion to human operator (Paperclip agents)")
     print("show_confirmation_dialog - Ask user for yes/no confirmation")
     print("show_info_message - Display information to user")
-    print("toggle_tkinter - Enable/disable tkinter dialog windows")
     print("get_human_loop_prompt - Get guidance on when to use human-in-the-loop tools")
     print("health_check - Check server status")
     print("")
