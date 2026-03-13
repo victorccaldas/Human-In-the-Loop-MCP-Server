@@ -3288,22 +3288,32 @@ class _MiniAppPool:
     _PREFLIGHT_CACHE_SECS = 30.0
 
     def _tunnel_reachable(self) -> bool:
-        """Quick reachability probe for the cached tunnel URL.
+        """Quick reachability probe for the local HTTP server.
 
-        Returns True when the URL responds with anything other than the
-        Cloudflare "Not Found" page (which indicates a dead quick tunnel)
-        or a 502/504 gateway error.
+        We check the *local* endpoint rather than the public tunnel URL
+        because Windows negative DNS caching renders the public URL
+        unreachable for minutes after tunnel creation (the new subdomain
+        NXDOMAIN is cached).
+
+        If the local server responds (even with 403/404) AND the cloudflared
+        process is alive, the tunnel is considered healthy.
         """
-        url = self._tunnel_url
-        if not url:
+        if self._server is None:
             return False
+        port = self._server.port
+        if not port:
+            return False
+        import urllib.request
+        import urllib.error
         try:
-            import requests as _req
-            resp = _req.get(url, timeout=3, allow_redirects=False)
-            if resp.status_code in (502, 504):
-                return False
-            if resp.status_code == 404 and "Not Found" in resp.text and len(resp.text) < 50:
-                return False
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{port}/", method="GET"
+            )
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                resp.read()
+            return True
+        except urllib.error.HTTPError:
+            # HTTP error (e.g. 403) means the server IS responding.
             return True
         except Exception:
             return False

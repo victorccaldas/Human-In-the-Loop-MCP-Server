@@ -403,19 +403,21 @@ class CloudflareTunnel:
                 self._log(f"[CloudflareTunnel] on_tunnel_died callback error: {exc}")
 
     def _health_check_loop(self) -> None:
-        """Periodically verify that the tunnel URL is reachable.
+        """Periodically verify that the local HTTP server is still reachable.
 
-        After ``_MAX_CONSECUTIVE_HEALTH_FAILURES`` consecutive failures the
-        cloudflared process is terminated, which triggers the auto-reconnect
-        flow in ``MiniAppSession._reconnect_loop``.
+        We probe ``http://127.0.0.1:{local_port}/`` rather than the public
+        tunnel URL because Windows negative DNS caching makes the public URL
+        unreachable for minutes after tunnel creation (the subdomain DNS
+        record hasn't propagated and the NXDOMAIN is cached).
+
+        If the local server is responsive AND the cloudflared process is
+        alive, the tunnel is considered healthy.  Silent Cloudflare-side
+        disconnections are handled by cloudflared's own QUIC keepalive /
+        reconnect logic + the process monitor thread.
         """
-        try:
-            import requests as _req
-        except ImportError:
-            self._log("[CloudflareTunnel] 'requests' not available -- tunnel health checks disabled.")
-            return
+        import urllib.request
+        import urllib.error
 
-        # Wait a short period after startup before beginning health checks.
         _initial_delay = 10.0
         _check_interval = 30.0
         _max_consecutive_failures = 4
@@ -425,7 +427,6 @@ class CloudflareTunnel:
         while not self._stopped:
             elapsed = time.monotonic() - start
             if elapsed < _initial_delay:
-                # Sleep in small increments so we can exit quickly on stop.
                 if self._process_died_event.wait(timeout=1.0):
                     break
                 continue
@@ -433,39 +434,25 @@ class CloudflareTunnel:
             if self._process_died_event.is_set() or self._stopped:
                 break
 
-            url = self._url
-            if not url:
+            port = self._local_port
+            if not port:
                 break
 
+            local_url = f"http://127.0.0.1:{port}/"
             _is_failure = False
             try:
-                resp = _req.get(url, timeout=10, allow_redirects=False)
-                if resp.status_code in (502, 504):
-                    self._log(
-                        f"[CloudflareTunnel] Health check WARN: "
-                        f"GET {url} returned HTTP {resp.status_code}."
-                    )
-                    _is_failure = True
-                elif resp.status_code == 404 and "Not Found" in resp.text and len(resp.text) < 50:
-                    # Cloudflare's plain "Not Found" for dead quick tunnels.
-                    self._log_critical(
-                        f"[CloudflareTunnel] Health check FAIL: "
-                        f"GET {url} returned Cloudflare 'Not Found' -- "
-                        f"tunnel may be disconnected."
-                    )
-                    _is_failure = True
-                else:
-                    _consecutive_failures = 0
-            except _req.ConnectionError:
+                req = urllib.request.Request(local_url, method="GET")
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    resp.read()
+                # Any HTTP response (including 403) means the server is alive.
+                _consecutive_failures = 0
+            except urllib.error.HTTPError:
+                # HTTP error (e.g. 403) — server is responding; healthy.
+                _consecutive_failures = 0
+            except (urllib.error.URLError, OSError, TimeoutError) as exc:
                 self._log(
                     f"[CloudflareTunnel] Health check FAIL: "
-                    f"Connection error reaching {url}."
-                )
-                _is_failure = True
-            except _req.Timeout:
-                self._log(
-                    f"[CloudflareTunnel] Health check WARN: "
-                    f"GET {url} timed out (10 s)."
+                    f"local server unreachable at {local_url} ({exc})."
                 )
                 _is_failure = True
             except Exception as exc:
