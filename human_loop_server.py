@@ -3420,30 +3420,35 @@ class _MiniAppPool:
                     pass
 
         # Smart propagation wait (outside lock so other threads aren't blocked)
-        if _new_tunnel_created:
+        # Check the LOCAL server to confirm it's responding.  We avoid the
+        # public tunnel URL because Windows negative DNS caching makes it
+        # unreachable for minutes after creation.
+        if _new_tunnel_created and self._server is not None:
             _start = time.monotonic()
-            try:
-                import requests as _req
-                _ready = False
-                while (time.monotonic() - _start) < 6.0:
-                    try:
-                        _resp = _req.get(url, timeout=2, allow_redirects=False)
-                        if _resp.status_code != 404 or "Not Found" not in _resp.text:
-                            _ready = True
-                            break
-                    except _req.ConnectionError:
-                        pass
-                    except Exception:
-                        break
-                    time.sleep(0.4)
-                _elapsed = round(time.monotonic() - _start, 2)
-                if _ready:
-                    self._last_preflight_ok = time.monotonic()
-                    append_log_line(get_remote_input_diag_log_path(), f"[MiniApp Pool] Tunnel reachable after {_elapsed}s")
-                else:
-                    append_log_line(get_remote_input_diag_log_path(), f"[MiniApp Pool] Tunnel not confirmed after {_elapsed}s — proceeding")
-            except ImportError:
-                time.sleep(3)
+            _ready = False
+            _port = self._server.port
+            import urllib.request
+            import urllib.error
+            while (time.monotonic() - _start) < 3.0:
+                try:
+                    _req = urllib.request.Request(
+                        f"http://127.0.0.1:{_port}/", method="GET"
+                    )
+                    urllib.request.urlopen(_req, timeout=2)
+                    _ready = True
+                    break
+                except urllib.error.HTTPError:
+                    _ready = True  # HTTP error = server is responding
+                    break
+                except Exception:
+                    pass
+                time.sleep(0.3)
+            _elapsed = round(time.monotonic() - _start, 2)
+            if _ready:
+                self._last_preflight_ok = time.monotonic()
+                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp Pool] Server confirmed after {_elapsed}s")
+            else:
+                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp Pool] Server not confirmed after {_elapsed}s — proceeding")
 
         return url
 
@@ -3596,22 +3601,24 @@ class _MiniAppPool:
                     f"[MiniApp Pool] Tunnel reconnected (attempt {attempt}, new URL: {new_url})",
                 )
 
-                # Smart propagation wait
-                try:
-                    import requests as _req_rc
+                # Smart propagation wait (local server check)
+                if self._server is not None:
+                    import urllib.request as _ul_req
+                    import urllib.error as _ul_err
                     _rc_start = time.monotonic()
-                    while (time.monotonic() - _rc_start) < 6.0:
+                    _rc_port = self._server.port
+                    while (time.monotonic() - _rc_start) < 3.0:
                         try:
-                            _resp = _req_rc.get(new_url, timeout=2, allow_redirects=False)
-                            if _resp.status_code != 404 or "Not Found" not in _resp.text:
-                                break
-                        except _req_rc.ConnectionError:
-                            pass
-                        except Exception:
+                            _r = _ul_req.Request(
+                                f"http://127.0.0.1:{_rc_port}/", method="GET"
+                            )
+                            _ul_req.urlopen(_r, timeout=2)
                             break
-                        time.sleep(0.4)
-                except ImportError:
-                    time.sleep(3)
+                        except _ul_err.HTTPError:
+                            break  # server responding
+                        except Exception:
+                            pass
+                        time.sleep(0.3)
 
                 break
             else:

@@ -29,10 +29,16 @@ import queue
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import ThreadingMixIn
 from typing import List, Optional
 from urllib.parse import urlparse, parse_qs
 
 from _miniapp_template import MINIAPP_HTML
+
+
+class _ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    """HTTPServer that handles each request in a new daemon thread."""
+    daemon_threads = True
 
 
 class MiniAppHTTPServer:
@@ -240,7 +246,7 @@ class MiniAppHTTPServer:
             def log_message(self, format, *args):  # noqa: A002
                 pass  # suppress default stdout logging
 
-        self._httpd = HTTPServer(("127.0.0.1", 0), _Handler)
+        self._httpd = _ThreadedHTTPServer(("127.0.0.1", 0), _Handler)
         self._port = self._httpd.server_address[1]
 
         self._thread = threading.Thread(
@@ -454,7 +460,7 @@ class PersistentMiniAppServer:
             def log_message(self, format, *args):  # noqa: A002
                 pass
 
-        self._httpd = HTTPServer(("127.0.0.1", 0), _Handler)
+        self._httpd = _ThreadedHTTPServer(("127.0.0.1", 0), _Handler)
         self._port = self._httpd.server_address[1]
         self._thread = threading.Thread(
             target=self._httpd.serve_forever,
