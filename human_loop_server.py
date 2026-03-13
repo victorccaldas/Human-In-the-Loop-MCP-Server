@@ -3281,6 +3281,32 @@ class _MiniAppPool:
         self._reconnect_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._active_sessions: dict[str, "PooledMiniAppSession"] = {}
+        self._last_preflight_ok: float = 0.0  # monotonic timestamp
+
+    # How often (seconds) to skip the preflight reachability check when the
+    # previous check succeeded recently.
+    _PREFLIGHT_CACHE_SECS = 30.0
+
+    def _tunnel_reachable(self) -> bool:
+        """Quick reachability probe for the cached tunnel URL.
+
+        Returns True when the URL responds with anything other than the
+        Cloudflare "Not Found" page (which indicates a dead quick tunnel)
+        or a 502/504 gateway error.
+        """
+        url = self._tunnel_url
+        if not url:
+            return False
+        try:
+            import requests as _req
+            resp = _req.get(url, timeout=3, allow_redirects=False)
+            if resp.status_code in (502, 504):
+                return False
+            if resp.status_code == 404 and "Not Found" in resp.text and len(resp.text) < 50:
+                return False
+            return True
+        except Exception:
+            return False
 
     def _ensure_infra(self) -> str:
         """Start the persistent server + tunnel if not already running.
@@ -3289,21 +3315,66 @@ class _MiniAppPool:
         Raises ``TunnelNotAvailableError`` on failure.
         """
         _new_tunnel_created = False
+        _need_new_tunnel = False
+
         with self._lock:
             # Start HTTP server if needed
             if self._server is None:
                 self._server = PersistentMiniAppServer()
                 self._server.start()
 
-            # Check if tunnel is alive
+            # Check if tunnel is alive (process-level check)
             if (
                 self._tunnel is not None
                 and self._tunnel_url is not None
                 and not self._tunnel.process_died.is_set()
             ):
+                # Preflight: verify the tunnel is actually reachable (catches
+                # silent Cloudflare disconnections where the process is alive
+                # but traffic doesn't flow).  Cached for _PREFLIGHT_CACHE_SECS.
+                now = time.monotonic()
+                if (now - self._last_preflight_ok) < self._PREFLIGHT_CACHE_SECS:
+                    return self._tunnel_url
+
+                # Release lock for the network call to avoid blocking other threads.
+                _cached_url = self._tunnel_url
+
+            else:
+                _need_new_tunnel = True
+
+        # Preflight reachability probe (outside lock)
+        if not _need_new_tunnel:
+            if self._tunnel_reachable():
+                self._last_preflight_ok = time.monotonic()
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    f"[MiniApp Pool] Preflight OK — tunnel reachable",
+                )
+                return _cached_url
+            else:
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    f"[MiniApp Pool] Preflight FAILED — tunnel unreachable, creating new tunnel",
+                )
+
+        # Need a new tunnel (or preflight failed)
+        with self._lock:
+            # Re-check: another thread may have already replaced the tunnel
+            # while we were doing the preflight probe without the lock.
+            if (
+                self._tunnel is not None
+                and self._tunnel_url is not None
+                and not self._tunnel.process_died.is_set()
+                and (time.monotonic() - self._last_preflight_ok) < self._PREFLIGHT_CACHE_SECS
+            ):
                 return self._tunnel_url
 
-            # Need a new tunnel
+            # Ensure HTTP server is running (may have been started above, but
+            # guard against the case where only preflight-failure path entered).
+            if self._server is None:
+                self._server = PersistentMiniAppServer()
+                self._server.start()
+
             tunnel = CloudflareTunnel()
             tunnel.set_log_callback(
                 lambda msg: append_log_line(get_remote_input_diag_log_path(), msg)
@@ -3357,6 +3428,7 @@ class _MiniAppPool:
                     time.sleep(0.4)
                 _elapsed = round(time.monotonic() - _start, 2)
                 if _ready:
+                    self._last_preflight_ok = time.monotonic()
                     append_log_line(get_remote_input_diag_log_path(), f"[MiniApp Pool] Tunnel reachable after {_elapsed}s")
                 else:
                     append_log_line(get_remote_input_diag_log_path(), f"[MiniApp Pool] Tunnel not confirmed after {_elapsed}s — proceeding")
