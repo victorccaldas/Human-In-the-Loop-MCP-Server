@@ -171,7 +171,7 @@ except ImportError:
 # Mini App components (optional — degrade gracefully if cloudflared unavailable)
 try:
     import secrets as _secrets
-    from _miniapp_server import MiniAppHTTPServer
+    from _miniapp_server import MiniAppHTTPServer, PersistentMiniAppServer
     from _tunnel_manager import CloudflareTunnel, TunnelNotAvailableError
     _MINIAPP_AVAILABLE = True
 except Exception as _miniapp_exc:
@@ -186,6 +186,7 @@ except Exception as _miniapp_exc:
     )
     _MINIAPP_AVAILABLE = False
     MiniAppHTTPServer = None  # type: ignore[misc, assignment]
+    PersistentMiniAppServer = None  # type: ignore[misc, assignment]
     CloudflareTunnel = None   # type: ignore[misc, assignment]
     class TunnelNotAvailableError(RuntimeError): pass  # type: ignore[misc]
 
@@ -3262,96 +3263,327 @@ class MiniAppSession:
             self._reconnect_thread.join(timeout=3.0)
 
 
+# ── Persistent MiniApp pool (avoids per-call tunnel creation) ──────
+
+class _MiniAppPool:
+    """Singleton that maintains a persistent HTTP server + Cloudflare tunnel.
+
+    Each ``get_remote_input`` call registers a session (unique token) with the
+    persistent server instead of spawning a new tunnel.  This avoids Cloudflare
+    429 rate limits that occur when creating many quick tunnels in succession.
+    """
+
+    def __init__(self) -> None:
+        self._server: Optional[PersistentMiniAppServer] = None
+        self._tunnel: Optional[CloudflareTunnel] = None
+        self._tunnel_url: Optional[str] = None
+        self._lock = threading.Lock()
+        self._reconnect_thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._active_sessions: dict[str, "PooledMiniAppSession"] = {}
+
+    def _ensure_infra(self) -> str:
+        """Start the persistent server + tunnel if not already running.
+
+        Returns the public tunnel base URL.
+        Raises ``TunnelNotAvailableError`` on failure.
+        """
+        _new_tunnel_created = False
+        with self._lock:
+            # Start HTTP server if needed
+            if self._server is None:
+                self._server = PersistentMiniAppServer()
+                self._server.start()
+
+            # Check if tunnel is alive
+            if (
+                self._tunnel is not None
+                and self._tunnel_url is not None
+                and not self._tunnel.process_died.is_set()
+            ):
+                return self._tunnel_url
+
+            # Need a new tunnel
+            tunnel = CloudflareTunnel()
+            tunnel.set_log_callback(
+                lambda msg: append_log_line(get_remote_input_diag_log_path(), msg)
+            )
+            url = tunnel.start(local_port=self._server.port, timeout=20.0)
+
+            old_tunnel = self._tunnel
+            self._tunnel = tunnel
+            self._tunnel_url = url
+            self._server.update_tunnel_url(url)
+            _new_tunnel_created = True
+
+            # Wire tunnel death → reconnect
+            tunnel.set_on_tunnel_died(self._on_tunnel_died)
+            if self._reconnect_thread is None or not self._reconnect_thread.is_alive():
+                self._stop_event.clear()
+                self._reconnect_thread = threading.Thread(
+                    target=self._reconnect_loop,
+                    daemon=True,
+                    name="miniapp-pool-reconnect",
+                )
+                self._reconnect_thread.start()
+
+            # Stop the old tunnel if there was one
+            if old_tunnel is not None:
+                try:
+                    old_tunnel.stop()
+                except Exception:
+                    pass
+
+        # Smart propagation wait (outside lock so other threads aren't blocked)
+        if _new_tunnel_created:
+            _start = time.monotonic()
+            try:
+                import requests as _req
+                _ready = False
+                while (time.monotonic() - _start) < 6.0:
+                    try:
+                        _resp = _req.get(url, timeout=2, allow_redirects=False)
+                        if _resp.status_code != 404 or "Not Found" not in _resp.text:
+                            _ready = True
+                            break
+                    except _req.ConnectionError:
+                        pass
+                    except Exception:
+                        break
+                    time.sleep(0.4)
+                _elapsed = round(time.monotonic() - _start, 2)
+                if _ready:
+                    append_log_line(get_remote_input_diag_log_path(), f"[MiniApp Pool] Tunnel reachable after {_elapsed}s")
+                else:
+                    append_log_line(get_remote_input_diag_log_path(), f"[MiniApp Pool] Tunnel not confirmed after {_elapsed}s — proceeding")
+            except ImportError:
+                time.sleep(3)
+
+        return url
+
+    def acquire_session(
+        self,
+        title: str,
+        prompt: str,
+        prompts_data: list,
+        name_or_role: str = "",
+    ) -> Optional["PooledMiniAppSession"]:
+        """Register a session and return a PooledMiniAppSession, or None on failure."""
+        token = _secrets.token_hex(16)
+        try:
+            tunnel_url = self._ensure_infra()
+        except (TunnelNotAvailableError, Exception) as exc:
+            append_log_line(
+                get_remote_input_diag_log_path(),
+                f"[MiniApp Pool] Tunnel unavailable: {exc}",
+            )
+            return None
+
+        answer_queue = self._server.register_session(
+            token=token,
+            title=title,
+            prompt=prompt,
+            prompts=prompts_data,
+            name_or_role=name_or_role,
+        )
+        webapp_url = f"{tunnel_url.rstrip('/')}/?t={token}"
+
+        session = PooledMiniAppSession(
+            pool=self,
+            token=token,
+            webapp_url=webapp_url,
+            answer_queue=answer_queue,
+        )
+        with self._lock:
+            self._active_sessions[token] = session
+
+        append_log_line(
+            get_remote_input_diag_log_path(),
+            f"[MiniApp Pool] Session registered: {webapp_url}",
+        )
+        return session
+
+    def release_session(self, token: str) -> None:
+        """Unregister a session (called by PooledMiniAppSession.stop())."""
+        with self._lock:
+            self._active_sessions.pop(token, None)
+        if self._server is not None:
+            self._server.unregister_session(token)
+
+    def _on_tunnel_died(self, pid: int, exit_code) -> None:
+        msg = (
+            f"[MiniApp Pool] cloudflared (PID {pid}) died (exit_code={exit_code}). "
+            f"Auto-reconnect will restore the tunnel."
+        )
+        append_log_line(get_remote_input_diag_log_path(), msg)
+
+    _MAX_RECONNECT_ATTEMPTS = 5
+    _RECONNECT_COOLDOWNS = [5, 10, 20, 30, 30]
+
+    def _reconnect_loop(self) -> None:
+        """Watch for tunnel death and reconnect, updating all active sessions."""
+        while not self._stop_event.is_set():
+            if self._tunnel is None:
+                if self._stop_event.wait(timeout=2.0):
+                    return
+                continue
+
+            died = self._tunnel.process_died.wait(timeout=2.0)
+            if self._stop_event.is_set():
+                return
+            if not died:
+                continue
+
+            for attempt in range(1, self._MAX_RECONNECT_ATTEMPTS + 1):
+                if self._stop_event.is_set():
+                    return
+
+                cooldown = self._RECONNECT_COOLDOWNS[
+                    min(attempt - 1, len(self._RECONNECT_COOLDOWNS) - 1)
+                ]
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    f"[MiniApp Pool] Reconnect attempt {attempt}/{self._MAX_RECONNECT_ATTEMPTS} in {cooldown}s...",
+                )
+                if self._stop_event.wait(timeout=cooldown):
+                    return
+
+                try:
+                    new_url = self._tunnel.reconnect(timeout=20.0)
+                except Exception as exc:
+                    append_log_line(
+                        get_remote_input_diag_log_path(),
+                        f"[MiniApp Pool] Reconnect attempt {attempt} failed: {exc}",
+                    )
+                    continue
+
+                # Reconnect succeeded — update everything
+                with self._lock:
+                    self._tunnel_url = new_url
+                    if self._server is not None:
+                        self._server.update_tunnel_url(new_url)
+
+                    for token, session in self._active_sessions.items():
+                        new_webapp_url = f"{new_url.rstrip('/')}/?t={token}"
+                        session.webapp_url = new_webapp_url
+                        cb = session.on_url_changed
+                        if cb is not None:
+                            try:
+                                cb(new_webapp_url)
+                            except Exception as exc:
+                                append_log_line(
+                                    get_remote_input_diag_log_path(),
+                                    f"[MiniApp Pool] on_url_changed callback error: {exc}",
+                                )
+
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    f"[MiniApp Pool] Tunnel reconnected (attempt {attempt}, new URL: {new_url})",
+                )
+
+                # Smart propagation wait
+                try:
+                    import requests as _req_rc
+                    _rc_start = time.monotonic()
+                    while (time.monotonic() - _rc_start) < 6.0:
+                        try:
+                            _resp = _req_rc.get(new_url, timeout=2, allow_redirects=False)
+                            if _resp.status_code != 404 or "Not Found" not in _resp.text:
+                                break
+                        except _req_rc.ConnectionError:
+                            pass
+                        except Exception:
+                            break
+                        time.sleep(0.4)
+                except ImportError:
+                    time.sleep(3)
+
+                break
+            else:
+                append_log_line(
+                    get_remote_input_diag_log_path(),
+                    f"[MiniApp Pool] All {self._MAX_RECONNECT_ATTEMPTS} reconnect attempts failed.",
+                )
+                return
+
+
+class PooledMiniAppSession:
+    """Lightweight session handle returned by :class:`_MiniAppPool`.
+
+    Duck-type compatible with ``MiniAppSession`` at the interface level:
+    ``http_server.answer_queue``, ``webapp_url``, ``on_url_changed``, ``stop()``.
+    """
+
+    def __init__(
+        self,
+        pool: _MiniAppPool,
+        token: str,
+        webapp_url: str,
+        answer_queue: "queue.SimpleQueue",
+    ) -> None:
+        self._pool = pool
+        self._token = token
+        self.webapp_url = webapp_url
+        self.on_url_changed: Optional[Callable] = None
+
+        # Duck-type: callers access .http_server.answer_queue
+        self.http_server = _AnswerQueueProxy(answer_queue)
+
+    def stop(self) -> None:
+        self._pool.release_session(self._token)
+
+
+class _AnswerQueueProxy:
+    """Tiny proxy so ``session.http_server.answer_queue`` works."""
+
+    def __init__(self, q: "queue.SimpleQueue") -> None:
+        self.answer_queue = q
+
+
+_miniapp_pool: Optional[_MiniAppPool] = None
+_miniapp_pool_lock = threading.Lock()
+
+
+def _get_miniapp_pool() -> _MiniAppPool:
+    """Lazily create the module-level MiniApp pool singleton."""
+    global _miniapp_pool
+    if _miniapp_pool is None:
+        with _miniapp_pool_lock:
+            if _miniapp_pool is None:
+                _miniapp_pool = _MiniAppPool()
+    return _miniapp_pool
+
+
 def _build_miniapp_session(
     title: str,
     prompt: str,
     all_prompts: list,
     name_or_role: str = "",
-) -> Optional["MiniAppSession"]:
-    """Attempt to start a Mini App HTTP server + Cloudflare quick tunnel.
+) -> Optional["PooledMiniAppSession"]:
+    """Attempt to acquire a Mini App session from the persistent pool.
 
-    Returns a :class:`MiniAppSession` on success, or ``None`` when the Mini
-    App infrastructure is not available (cloudflared not installed, import
-    error, tunnel timeout, etc.).  Failures are printed but never raised so
-    that callers can degrade gracefully.
+    Returns a :class:`PooledMiniAppSession` on success, or ``None`` when the
+    Mini App infrastructure is not available.  Uses a shared tunnel/server
+    pool to avoid Cloudflare 429 rate limits from frequent tunnel creation.
     """
     if not _MINIAPP_AVAILABLE:
         return None
 
     try:
-        token = _secrets.token_hex(16)
-
-        # Build prompts list: all CSV rows, active ones pre-checked
-        # all_prompts = [(active: bool, color: str, text: str), ...]
         prompts_data = [
             {"text": p[2], "checked": bool(p[0])}
             for p in all_prompts
             if (p[2] or "").strip()
         ]
 
-        # Start local HTTP server first (instant, OS assigns port)
-        http_server = MiniAppHTTPServer(
+        pool = _get_miniapp_pool()
+        session = pool.acquire_session(
             title=title,
             prompt=prompt,
-            prompts=prompts_data,
-            token=token,
-            tunnel_base_url="https://placeholder.trycloudflare.com",  # updated after tunnel starts
+            prompts_data=prompts_data,
             name_or_role=name_or_role,
         )
-        port = http_server.start()
-
-        # Start Cloudflare tunnel (blocks up to 20 s)
-        tunnel = CloudflareTunnel()
-        tunnel.set_log_callback(
-            lambda msg: append_log_line(get_remote_input_diag_log_path(), msg)
-        )
-
-        try:
-            public_url = tunnel.start(local_port=port, timeout=20.0)
-        except TunnelNotAvailableError as exc:
-            append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Tunnel unavailable: {exc}")
-            try:
-                print(f"[MiniApp] Tunnel unavailable: {exc}", file=sys.stderr)
-            except Exception:
-                pass
-            http_server.stop()
-            return None
-
-        # Update the server's tunnel URL now that we know the real address
-        http_server._tunnel_base_url = public_url.rstrip("/")
-
-        # Smart propagation wait: poll the tunnel URL until it responds
-        # instead of a fixed 3-second sleep.  Falls back to 3 s if the
-        # requests library is unavailable.
-        _propagation_start = time.monotonic()
-        try:
-            import requests as _req
-            _max_wait = 6.0   # give up after 6 s
-            _poll_interval = 0.4
-            _ready = False
-            while (time.monotonic() - _propagation_start) < _max_wait:
-                try:
-                    _resp = _req.get(public_url, timeout=2, allow_redirects=False)
-                    if _resp.status_code != 404 or "Not Found" not in _resp.text:
-                        _ready = True
-                        break
-                except _req.ConnectionError:
-                    pass
-                except Exception:
-                    break
-                time.sleep(_poll_interval)
-            _elapsed = round(time.monotonic() - _propagation_start, 2)
-            if _ready:
-                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Tunnel reachable after {_elapsed}s (smart propagation)")
-            else:
-                append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Tunnel not confirmed after {_elapsed}s -- proceeding anyway")
-        except ImportError:
-            time.sleep(3)
-            append_log_line(get_remote_input_diag_log_path(), "[MiniApp] 'requests' unavailable -- used 3s fixed propagation wait")
-
-        webapp_url = f"{public_url.rstrip('/')}/?t={token}"
-        append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Mini App ready at {webapp_url}")
-        return MiniAppSession(http_server, tunnel, webapp_url, token)
+        return session
 
     except Exception as exc:
         append_log_line(get_remote_input_diag_log_path(), f"[MiniApp] Failed to build Mini App session: {exc}")

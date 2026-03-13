@@ -417,8 +417,8 @@ class CloudflareTunnel:
 
         # Wait a short period after startup before beginning health checks.
         _initial_delay = 10.0
-        _check_interval = 30.0
-        _max_consecutive_failures = 3
+        _check_interval = 45.0
+        _max_consecutive_failures = 5
         _consecutive_failures = 0
 
         start = time.monotonic()
