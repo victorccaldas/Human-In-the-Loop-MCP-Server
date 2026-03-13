@@ -4414,6 +4414,42 @@ async def get_remote_input(
 
 
 @mcp.tool()
+async def complete_paperclip_task(
+    summary: Annotated[str, Field(description="A detailed summary of the work you completed. Include what was done, any files changed, test results, and next steps.")],
+    paperclip_agent_id: Annotated[str, Field(description="Your Paperclip agent ID. This links the completion report back to your Paperclip task.")],
+    title: Annotated[str, Field(description="Short title describing the completed task")] = "Task Complete",
+    name_or_role: Annotated[str, Field(description="Your agent name or role (e.g. 'Backend Engineer', 'Code Reviewer')")] = "",
+    file_path: Annotated[Optional[str], Field(description="Optional file path to attach as context")] = None,
+    ctx: Context = None,
+) -> Dict[str, Any]:
+    """Report task completion and request next instructions from the human operator.
+
+    **Every Paperclip agent session MUST call this tool before finishing.**
+
+    This tool delivers your work summary to the human operator via all available
+    channels (Telegram, local dialog, Paperclip dashboard) and waits for their
+    response — which may be approval, feedback, or a follow-up task.
+
+    Failing to call this tool means your work is silently lost and the operator
+    receives no notification.
+    """
+    prompt = (
+        f"## Task Completion Report\n\n{summary}\n\n"
+        "---\n"
+        "Reply with feedback, a follow-up task, or **done** to close this session."
+    )
+    return await get_remote_input(
+        title=title,
+        prompt=prompt,
+        default_value="",
+        name_or_role=name_or_role,
+        file_path=file_path,
+        paperclip_agent_id=paperclip_agent_id,
+        ctx=ctx,
+    )
+
+
+@mcp.tool()
 async def show_confirmation_dialog(
     title: Annotated[str, Field(description="Title of the confirmation dialog")],
     message: Annotated[str, Field(description="The message to show to the user")],
@@ -4746,6 +4782,7 @@ async def health_check() -> Dict[str, Any]:
                 "get_user_choice", 
                 "get_multiline_input",
                 "get_remote_input",
+                "complete_paperclip_task",
                 "show_confirmation_dialog",
                 "show_info_message",
                 "toggle_tkinter",
@@ -4781,6 +4818,7 @@ def main():
     print("get_user_choice - Let user choose from options")
     print("get_multiline_input - Get multi-line text from user")
     print("get_remote_input - Get multi-line text with Telegram remote answering")
+    print("complete_paperclip_task - Report task completion to human operator (Paperclip agents)")
     print("show_confirmation_dialog - Ask user for yes/no confirmation")
     print("show_info_message - Display information to user")
     print("toggle_tkinter - Enable/disable tkinter dialog windows")
